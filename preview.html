@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>X 原文预览</title>
+    <link rel="stylesheet" href="preview.css" />
+  </head>
+  <body>
+    <main class="preview-page" aria-label="X 原文预览">
+      <header class="preview-header">
+        <strong>X 原文预览</strong>
+        <div class="preview-actions">
+          <button id="copy" type="button">复制 Markdown</button>
+          <button id="close" type="button" class="secondary">关闭</button>
+        </div>
+      </header>
+      <article id="article" class="preview-reader">
+        <p class="empty">正在加载原文…</p>
+      </article>
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+    </main>
+    <script src="markdown.js"></script>
+    <script src="preview.js"></script>
+  </body>
+</html>

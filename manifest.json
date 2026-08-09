@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "x-to-md",
+  "version": "1.0.0",
+  "description": "读取当前 X 推文或 Article，预览原文并复制为不含图片的 Markdown。",
+  "permissions": ["activeTab", "storage"],
+  "host_permissions": [
+    "https://x.com/*",
+    "https://www.x.com/*",
+    "https://twitter.com/*",
+    "https://www.twitter.com/*"
+  ],
+  "action": {
+    "default_title": "导入当前 X 页面",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://x.com/*",
+        "https://www.x.com/*",
+        "https://twitter.com/*",
+        "https://www.twitter.com/*"
+      ],
+      "js": ["markdown.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
