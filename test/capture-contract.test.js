@@ -36,7 +36,23 @@ test("Manifest 保持独立运行所需的最小权限", () => {
   const manifest = JSON.parse(readFileSync(new URL("../manifest.json", import.meta.url), "utf8"));
 
   assert.equal(manifest.name, "x-to-md");
-  assert.equal(manifest.version, "1.0.0");
+  assert.equal(manifest.version, "1.0.1");
   assert.deepEqual(manifest.permissions, ["activeTab", "storage"]);
   assert.equal(manifest.web_accessible_resources, undefined);
+});
+
+test("Popup 与预览页保留清晰的成功、边界和来源反馈", () => {
+  const popup = readFileSync(new URL("../popup.html", import.meta.url), "utf8");
+  const popupScript = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
+  const preview = readFileSync(new URL("../preview.html", import.meta.url), "utf8");
+  const previewScript = readFileSync(new URL("../preview.js", import.meta.url), "utf8");
+
+  assert.match(popup, /提取并复制 Markdown/u);
+  assert.match(popup, /不上传内容/u);
+  assert.match(popupScript, /capture\?\.error/u);
+  assert.match(popupScript, /已复制 Markdown，但预览未能打开/u);
+  assert.match(preview, /已提取 · Markdown 已复制/u);
+  assert.match(previewScript, /查看原文/u);
+  assert.match(previewScript, /图片不进入 Markdown/u);
+  assert.match(previewScript, /本次预览已过期/u);
 });

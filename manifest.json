@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "x-to-md",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "读取当前 X 推文或 Article，预览原文并复制为不含图片的 Markdown。",
   "permissions": ["activeTab", "storage"],
   "host_permissions": [

@@ -8,6 +8,7 @@
       body { width: 260px; margin: 0; padding: 16px; color: #15181d; }
       h1 { margin: 0 0 8px; font-size: 16px; }
       p { margin: 0 0 14px; color: #565d67; font-size: 12px; line-height: 1.5; }
+      .hint { margin-top: -6px; margin-bottom: 12px; font-size: 11px; }
       button { width: 100%; min-height: 36px; border: 0; border-radius: 8px; background: #15181d; color: white; font-weight: 700; cursor: pointer; }
       button:disabled { opacity: .55; cursor: wait; }
       #status { min-height: 18px; margin-top: 10px; font-size: 12px; line-height: 1.5; }
@@ -16,9 +17,10 @@
     </style>
   </head>
   <body>
-    <h1>X 原文工具</h1>
-    <p>读取当前 X 推文或 Article，打开原文预览，并复制不含图片的 Markdown。</p>
-    <button id="import" type="button">读取、预览并复制 Markdown</button>
+    <h1>保存为 Markdown</h1>
+    <p>提取当前 X 推文或 Article，仅在本次操作中处理，不上传内容。</p>
+    <button id="import" type="button">提取并复制 Markdown</button>
+    <p class="hint">将打开原文预览 · 不含图片</p>
     <div id="status" role="status" aria-live="polite"></div>
     <script src="markdown.js"></script>
     <script src="popup.js"></script>

@@ -35,6 +35,8 @@ button:hover { filter: brightness(.94); }
   backdrop-filter: blur(8px);
 }
 .preview-actions { display: flex; gap: 8px; }
+.preview-heading { display: flex; align-items: baseline; gap: 10px; }
+.preview-heading span { color: #536471; font-size: 13px; }
 .preview-reader {
   width: min(720px, 100%);
   margin: 0 auto;
@@ -51,12 +53,14 @@ button:hover { filter: brightness(.94); }
 .preview-reader code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .preview-reader hr { margin: 36px 0; border: 0; border-top: 1px solid #eff3f4; }
 .preview-reader img { display: block; max-width: 100%; height: auto; margin: 0 auto 28px; border-radius: 12px; }
-.preview-meta { margin: -12px 0 32px; color: #536471; font-size: 14px; }
+.preview-info { display: flex; flex-wrap: wrap; gap: 8px 14px; margin: 0 0 32px; color: #536471; font-size: 13px; line-height: 1.5; }
+.preview-info a { color: #1d9bf0; }
 .empty, .status { color: #536471; font-size: 14px; }
 .status { position: fixed; right: 24px; bottom: 20px; margin: 0; padding: 8px 12px; border-radius: 8px; background: #0f1419; color: #fff; }
 .status:empty { display: none; }
 @media (max-width: 600px) {
   .preview-header { align-items: flex-start; flex-direction: column; gap: 10px; padding: 14px 16px; }
+  .preview-heading { align-items: flex-start; flex-direction: column; gap: 4px; }
   .preview-reader { padding: 28px 16px 72px; font-size: 18px; }
   .preview-reader h1 { font-size: 32px; }
   .preview-actions { width: 100%; }

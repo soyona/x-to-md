@@ -2,7 +2,7 @@
 
 `x-to-md` 是一个独立的 Chrome 扩展：用户在 X 推文或 Article 页面主动读取内容、预览并复制不含图片的 Markdown。
 
-它不连接 x-to-xhs、不调用 X API、不上传内容，也不需要 API Key。复制出的 Markdown 可粘贴到任何支持 Markdown 的编辑器或写作工具。
+它不连接 x-to-xhs、不调用 X API、不上传内容，也不需要 API Key。用户点击提取后会立即复制 Markdown，并打开原文阅读预览；复制结果不包含图片，可粘贴到任何支持 Markdown 的编辑器或写作工具。
 
 ## 安装
 

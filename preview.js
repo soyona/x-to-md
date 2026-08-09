@@ -1,5 +1,6 @@
 const article = document.querySelector("#article");
 const status = document.querySelector("#status");
+const copyButton = document.querySelector("#copy");
 let capture = null;
 
 function text(value) {
@@ -47,7 +48,11 @@ function renderCapture(value) {
   capture = value;
   const blocks = Array.isArray(value.blocks) ? value.blocks : [];
   const metadata = [value.authorName, value.authorHandle ? `@${value.authorHandle.replace(/^@/u, "")}` : "", value.publishedAt].filter(Boolean).join(" · ");
-  article.innerHTML = `${blocks.map(renderBlock).join("")}${metadata ? `<p class="preview-meta">${escapeHtml(metadata)}</p>` : ""}`;
+  const sourceUrl = /^https:\/\/(?:www\.)?(?:x|twitter)\.com\//u.test(value.sourceUrl || "") ? value.sourceUrl : "";
+  const sourceLink = sourceUrl ? `<a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noreferrer">查看原文</a>` : "";
+  const info = `<div class="preview-info"><span>图片不进入 Markdown</span>${metadata ? `<span>${escapeHtml(metadata)}</span>` : ""}${sourceLink}</div>`;
+  article.innerHTML = `${info}${blocks.map(renderBlock).join("")}`;
+  copyButton.disabled = false;
   document.title = value.title || "X 原文预览";
 }
 
@@ -55,17 +60,19 @@ async function loadCapture() {
   try {
     const result = await chrome.storage.session.get("latest-capture");
     await chrome.storage.session.remove("latest-capture");
-    if (!result["latest-capture"]) throw new Error("原文已过期，请返回 X 页面重新读取。");
+    if (!result["latest-capture"]) throw new Error("本次预览已过期，请返回 X 页面重新提取。");
     renderCapture(result["latest-capture"]);
   } catch (error) {
     article.innerHTML = `<p class="empty">${escapeHtml(error.message || "读取原文失败。")}</p>`;
+    status.textContent = "预览不可用";
   }
 }
 
-document.querySelector("#copy").addEventListener("click", async () => {
+copyButton.addEventListener("click", async () => {
   if (!capture) return;
   try {
     await navigator.clipboard.writeText(globalThis.XToXhsMarkdown.blocksToMarkdown(capture.blocks, { includeImages: false }));
+    copyButton.textContent = "已复制";
     status.textContent = "已复制 Markdown（不含图片）";
   } catch {
     status.textContent = "复制失败，请检查剪贴板权限。";
