@@ -1,6 +1,5 @@
 const button = document.querySelector("#import");
 const status = document.querySelector("#status");
-const CAPTURE_KEY = "latest-capture";
 const DEFAULT_BUTTON_LABEL = button.textContent;
 
 function setStatus(message, kind = "") {
@@ -28,12 +27,12 @@ button.addEventListener("click", async () => {
     if (capture?.error) throw new Error(capture.error);
     if (!capture?.content) throw new Error("没有读取到正文，请先等待页面加载完成。");
     await copyMarkdown(capture);
-    await chrome.storage.session.set({ [CAPTURE_KEY]: capture });
     try {
-      await chrome.tabs.create({ url: chrome.runtime.getURL("preview.html") });
-      setStatus("已复制 Markdown，并打开原文预览。", "success");
+      const preview = await chrome.tabs.sendMessage(tab.id, { type: "open-native-preview" });
+      if (preview?.error) throw new Error(preview.error);
+      window.close();
     } catch {
-      setStatus("已复制 Markdown，但预览未能打开。", "success");
+      setStatus("已复制 Markdown，但原生预览未能打开。", "error");
     }
   } catch (error) {
     setStatus(error.message || "读取失败，请刷新 X 页面后重试。", "error");

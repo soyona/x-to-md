@@ -35,7 +35,11 @@ function renderBlock(block) {
     const url = text(block.url || block.previewImageUrl);
     return url ? `<img src="${escapeHtml(url)}" alt="${escapeHtml(block.altText || "X 原文图片")}">` : "";
   }
-  if (block.type === "code") return `<pre><code>${escapeHtml(block.text)}</code></pre>`;
+  if (block.type === "code") {
+    const language = text(block.language);
+    const header = language || "";
+    return `<div class="preview-code"><div class="preview-code-header"><span>${escapeHtml(header)}</span><button type="button" class="preview-code-copy" data-code-copy aria-label="复制代码" title="复制代码">▣</button></div><pre><code>${escapeHtml(block.text)}</code></pre></div>`;
+  }
   if (block.type === "heading") return `<h${Math.min(6, Math.max(1, Number(block.level) || 1))}>${inlineHtml(block)}</h${Math.min(6, Math.max(1, Number(block.level) || 1))}>`;
   if (block.type === "blockquote") return `<blockquote>${inlineHtml(block)}</blockquote>`;
   if (block.type === "divider") return "<hr>";
@@ -79,4 +83,16 @@ copyButton.addEventListener("click", async () => {
   }
 });
 document.querySelector("#close").addEventListener("click", () => window.close());
+article.addEventListener("click", async (event) => {
+  const button = event.target.closest?.("[data-code-copy]");
+  if (!button) return;
+  const code = button.closest(".preview-code")?.querySelector("code")?.textContent || "";
+  try {
+    await navigator.clipboard.writeText(code);
+    button.textContent = "✓";
+    status.textContent = "代码已复制";
+  } catch {
+    status.textContent = "复制失败，请检查剪贴板权限。";
+  }
+});
 loadCapture();

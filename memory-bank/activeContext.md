@@ -4,10 +4,10 @@
 
 ## 当前状态
 
-- `v1.0.0` 已发布，项目只维护 `main` 分支。
+- `v2.1.0` 已实现，项目只维护 `main` 分支；真实 X 页面验收仍待执行。
 - 扩展提供 X/Twitter 当前页面读取、原文预览和不含图片的 Markdown 复制。
-- 预览数据通过 `chrome.storage.session` 一次性传递，Preview 读取后立即删除。
-- 权限保持最小化：`activeTab`、`storage` 和四个 X/Twitter HTTPS 主机范围。
+- 视觉预览在当前 X 文档中运行，直接复用 X 原始 CSS、字体和容器布局。
+- 权限保持最小化：`activeTab`、`storage` 和四个 X/Twitter HTTPS 主机范围；v2 主链路不使用存储传递视觉内容，保留旧语义预览兼容页。
 
 ## 当前技术债与风险
 

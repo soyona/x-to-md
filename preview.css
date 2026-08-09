@@ -20,6 +20,8 @@ button {
 }
 button.secondary { background: #eff3f4; color: #0f1419; }
 button:hover { filter: brightness(.94); }
+button:disabled { opacity: .55; cursor: wait; filter: none; }
+button:focus-visible, .preview-info a:focus-visible { outline: 3px solid #8ab4f8; outline-offset: 2px; }
 .preview-page { min-height: 100vh; }
 .preview-header {
   position: sticky;
@@ -28,19 +30,20 @@ button:hover { filter: brightness(.94); }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 56px;
-  padding: 0 24px;
+  min-height: 64px;
+  padding: 12px 28px;
   border-bottom: 1px solid #eff3f4;
   background: rgba(255, 255, 255, .96);
   backdrop-filter: blur(8px);
 }
 .preview-actions { display: flex; gap: 8px; }
 .preview-heading { display: flex; align-items: baseline; gap: 10px; }
+.preview-heading strong { font-size: 15px; }
 .preview-heading span { color: #536471; font-size: 13px; }
 .preview-reader {
   width: min(720px, 100%);
   margin: 0 auto;
-  padding: 40px 24px 96px;
+  padding: 48px 24px 96px;
   font-size: 20px;
   line-height: 1.55;
 }
@@ -49,11 +52,15 @@ button:hover { filter: brightness(.94); }
 .preview-reader p { margin: 0 0 28px; white-space: pre-wrap; }
 .preview-reader a { color: #1d9bf0; }
 .preview-reader blockquote { margin: 0 0 24px; border-left: 4px solid #cfd9de; padding-left: 24px; color: #536471; }
-.preview-reader pre { overflow: auto; margin: 0 0 28px; border-radius: 8px; padding: 16px; background: #f7f9f9; font: 15px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.preview-code { overflow: hidden; margin: 0 0 28px; border-radius: 12px; background: #f7f9f9; }
+.preview-code-header { display: flex; align-items: center; justify-content: space-between; min-height: 48px; padding: 0 16px; background: #e8edef; font: 15px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.preview-code-copy { min-width: 32px; min-height: 32px; padding: 0; border-radius: 6px; background: transparent; color: #0f1419; font-size: 20px; line-height: 1; }
+.preview-code-copy:hover { background: rgba(15, 20, 25, .08); filter: none; }
+.preview-reader pre { overflow: auto; margin: 0; padding: 16px; background: transparent; font: 15px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .preview-reader code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .preview-reader hr { margin: 36px 0; border: 0; border-top: 1px solid #eff3f4; }
 .preview-reader img { display: block; max-width: 100%; height: auto; margin: 0 auto 28px; border-radius: 12px; }
-.preview-info { display: flex; flex-wrap: wrap; gap: 8px 14px; margin: 0 0 32px; color: #536471; font-size: 13px; line-height: 1.5; }
+.preview-info { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin: 0 0 32px; color: #536471; font-size: 13px; line-height: 1.5; }
 .preview-info a { color: #1d9bf0; }
 .empty, .status { color: #536471; font-size: 14px; }
 .status { position: fixed; right: 24px; bottom: 20px; margin: 0; padding: 8px 12px; border-radius: 8px; background: #0f1419; color: #fff; }
