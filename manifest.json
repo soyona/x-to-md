@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "x-to-md",
   "version": "2.1.0",
-  "description": "读取当前 X 推文或 Article，预览原文并复制为不含图片的 Markdown。",
+  "description": "Read the current X post or Article, preview it, and copy clean Markdown without images.",
   "permissions": ["activeTab", "storage"],
   "host_permissions": [
     "https://x.com/*",
@@ -11,7 +11,19 @@
     "https://www.twitter.com/*"
   ],
   "action": {
-    "default_title": "导入当前 X 页面"
+    "default_title": "Import the current X page",
+    "default_icon": {
+      "16": "assets/icons/x-to-md-icon-16.png",
+      "32": "assets/icons/x-to-md-icon-32.png",
+      "48": "assets/icons/x-to-md-icon-48.png",
+      "128": "assets/icons/x-to-md-icon-128.png"
+    }
+  },
+  "icons": {
+    "16": "assets/icons/x-to-md-icon-16.png",
+    "32": "assets/icons/x-to-md-icon-32.png",
+    "48": "assets/icons/x-to-md-icon-48.png",
+    "128": "assets/icons/x-to-md-icon-128.png"
   },
   "background": {
     "service_worker": "background.js"

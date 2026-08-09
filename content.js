@@ -101,28 +101,31 @@ function importPanelStyle() {
     #x-to-md-import-panel {
       position: fixed !important; top: 16px !important; right: 16px !important;
       z-index: 2147483646 !important; box-sizing: border-box !important;
-      width: 280px !important; padding: 16px !important;
+      width: 300px !important; padding: 20px !important;
       border: 1px solid rgb(239, 243, 244) !important;
       border-radius: 16px !important; background: rgb(255, 255, 255) !important;
       box-shadow: 0 2px 8px rgba(15, 20, 25, .08), 0 8px 24px rgba(15, 20, 25, .14) !important;
       color: rgb(15, 20, 25) !important;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
-      font-size: 15px !important; line-height: 1.35 !important;
+      font-size: 15px !important; line-height: 1.4 !important;
     }
     #x-to-md-import-panel h2 {
       margin: 0 !important; color: rgb(15, 20, 25) !important;
       font: 700 20px/1.25 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+      letter-spacing: -.015em !important;
     }
     #x-to-md-import-panel p {
       margin: 8px 0 20px !important; color: rgb(83, 100, 113) !important;
-      font: 400 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+      font: 400 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
     }
     #x-to-md-import-panel button {
-      display: block !important; box-sizing: border-box !important; width: 100% !important;
-      height: 44px !important; min-height: 44px !important; margin: 0 !important; padding: 0 16px !important;
+      display: flex !important; align-items: center !important; justify-content: center !important;
+      box-sizing: border-box !important; width: 100% !important;
+      height: 46px !important; min-height: 46px !important; margin: 0 !important; padding: 0 18px !important;
       border: 0 !important; border-radius: 9999px !important; appearance: none !important;
       background: rgb(15, 20, 25) !important; color: #fff !important; cursor: pointer !important;
-      font: 700 15px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+      font: 700 15px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+      text-align: center !important; white-space: nowrap !important;
     }
     #x-to-md-import-panel button:hover { background: rgb(39, 44, 48) !important; }
     #x-to-md-import-panel button:disabled { opacity: .6 !important; cursor: wait !important; }
@@ -146,8 +149,8 @@ function createImportPanel() {
   const style = importPanelStyle();
   const panel = document.createElement("aside");
   panel.id = "x-to-md-import-panel";
-  panel.setAttribute("aria-label", "保存 Markdown");
-  panel.innerHTML = '<h2>保存 Markdown</h2><p>读取当前 X 内容，不上传内容。</p><button type="button" data-import>提取并复制</button><div data-import-status role="status" aria-live="polite"></div>';
+  panel.setAttribute("aria-label", "Save Markdown");
+  panel.innerHTML = '<h2>Save Markdown</h2><p>Read the current X content. Nothing is uploaded.</p><button type="button" data-import>Extract and copy</button><div data-import-status role="status" aria-live="polite"></div>';
   document.head.append(style);
   document.body.append(panel);
   importPanelState = { panel, style };
@@ -155,7 +158,7 @@ function createImportPanel() {
   const status = panel.querySelector("[data-import-status]");
   button.addEventListener("click", async () => {
     button.disabled = true;
-    button.textContent = "正在提取…";
+    button.textContent = "Extracting…";
     status.textContent = "";
     try {
       const capture = await capturePage();
@@ -164,16 +167,19 @@ function createImportPanel() {
       openNativePreview();
       removeImportPanel();
     } catch (error) {
-      status.textContent = error.message || "提取失败，请重试。";
+      status.textContent = error.message || "Extraction failed. Please try again.";
       button.disabled = false;
-      button.textContent = "提取并复制";
+      button.textContent = "Extract and copy";
     }
   });
 }
 
 function toggleImportPanel() {
   if (importPanelState) removeImportPanel();
-  else createImportPanel();
+  else {
+    restoreNativePreview();
+    createImportPanel();
+  }
 }
 
 function nativePreviewStyle() {
@@ -229,8 +235,8 @@ function nativePreviewStyle() {
     #x-to-md-native-preview-toolbar [data-copy-menu] button:hover { background: #f7f9f9 !important; }
     #x-to-md-native-preview-toolbar [data-copy-menu] svg { width: 24px !important; height: 24px !important; display: block !important; flex: 0 0 24px !important; margin-right: 24px !important; fill: currentColor !important; color: #0f1419 !important; }
     #x-to-md-copy-toast {
-      position: fixed !important; left: 50% !important; bottom: 24px !important;
-      z-index: 2147483647 !important; transform: translateX(-50%) !important;
+      position: fixed !important; right: 16px !important; bottom: 88px !important;
+      z-index: 2147483647 !important; transform: none !important;
       margin: 0 !important; padding: 12px 16px !important;
       border: 0 !important; border-radius: 9999px !important;
       background: #0f1419 !important; color: #fff !important;
@@ -304,10 +310,10 @@ function closeNativeCopyMenu() {
 }
 
 function openNativePreview() {
-  if (!latestCapture) throw new Error("请先提取正文，再打开原生预览。");
+  if (!latestCapture) throw new Error("Extract the content before opening the native preview.");
   restoreNativePreview();
   const root = findRoot();
-  if (!root) throw new Error("找不到当前 X 正文区域，请刷新页面后重试。");
+  if (!root) throw new Error("Could not find the current X content area. Please refresh the page and try again.");
 
   const hiddenElements = [];
   let current = root;
@@ -322,7 +328,7 @@ function openNativePreview() {
   const style = nativePreviewStyle();
   const toolbar = document.createElement("aside");
   toolbar.id = "x-to-md-native-preview-toolbar";
-  toolbar.setAttribute("aria-label", "原生预览操作");
+  toolbar.setAttribute("aria-label", "Native preview controls");
   toolbar.innerHTML = '<button aria-expanded="false" aria-haspopup="menu" aria-label="Copy text" title="Copy text" role="button" class="css-g5y9jx r-sdzlij r-1phboty r-rs99b7 r-lrvibr r-nhe8su r-yn5ncy r-clrlgt r-1ec6tlx r-1h0z5md r-15ysp7h r-4wgw6l r-1loqt21 r-o7ynqc r-6416eg r-1ny4l3l" style="border-color: rgba(0, 0, 0, 0); background-color: rgba(0, 0, 0, 0);" type="button" data-preview-copy><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.5 2C20.88 2 22 3.12 22 4.5v11c0 1.21-.86 2.22-2 2.45V4.5c0-.28-.22-.5-.5-.5H6.05c.23-1.14 1.24-2 2.45-2h11zm-4 4C16.88 6 18 7.12 18 8.5v11c0 1.38-1.12 2.5-2.5 2.5h-11C3.12 22 2 20.88 2 19.5v-11C2 7.12 3.12 6 4.5 6h11zM4 19.5c0 .28.22.5.5.5h11c.28 0 .5-.22.5-.5v-11c0-.28-.22-.5-.5-.5h-11c-.28 0-.5.22-.5.5v11z"></path></svg></button><button aria-label="Exit" title="Exit" role="button" class="css-g5y9jx r-sdzlij r-1phboty r-rs99b7 r-lrvibr r-15ysp7h r-4wgw6l r-1loqt21 r-o7ynqc r-6416eg r-1ny4l3l" style="border-color: rgba(0, 0, 0, 0); background-color: rgba(0, 0, 0, 0);" type="button" data-preview-close><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"></path></svg></button>';
   toolbar.innerHTML = '<div data-x-toolbar-button><button aria-expanded="false" aria-haspopup="menu" aria-label="Copy text" title="Copy text" role="button" class="css-g5y9jx r-sdzlij r-1phboty r-rs99b7 r-lrvibr r-nhe8su r-yn5ncy r-clrlgt r-1ec6tlx r-1h0z5md r-15ysp7h r-4wgw6l r-1loqt21 r-o7ynqc r-6416eg r-1ny4l3l" style="border-color: rgba(0, 0, 0, 0); background-color: rgba(0, 0, 0, 0);" type="button" data-preview-copy><div dir="ltr" class="css-146c3p1 r-qvutc0 r-37j5jr r-q4m81j r-a023e6 r-rjixqe r-b88u0q r-1awozwy r-6koalj r-18u37iz r-16y2uox r-bcqeeo r-1777fci" style="color: rgb(83, 100, 113);"><svg viewBox="0 0 24 24" aria-hidden="true" class="r-4qtqp9 r-yyyyoo r-dnmrzs r-bnwqim r-lrvibr r-m6rgpd r-1hjwoze r-12ym1je" style="color: rgb(83, 100, 113);"><g><path d="M19.5 2C20.88 2 22 3.12 22 4.5v11c0 1.21-.86 2.22-2 2.45V4.5c0-.28-.22-.5-.5-.5H6.05c.23-1.14 1.24-2 2.45-2h11zm-4 4C16.88 6 18 7.12 18 8.5v11c0 1.38-1.12 2.5-2.5 2.5h-11C3.12 22 2 20.88 2 19.5v-11C2 7.12 3.12 6 4.5 6h11zM4 19.5c0 .28.22.5.5.5h11c.28 0 .5-.22.5-.5v-11c0-.28-.22-.5-.5-.5h-11c-.28 0-.5.22-.5.5v11z"></path></g></svg><div class="css-g5y9jx r-xoduu5"><span class="css-1jxf684 r-dnmrzs r-1udh08x r-1udbk01 r-3s2u2q r-bcqeeo r-1ttztb7 r-qvutc0 r-poiln3 r-1b43r93 r-1cwl3u0"></span></div></div></button></div><div data-x-toolbar-button><button aria-expanded="false" aria-haspopup="menu" aria-label="Exit" title="Exit" role="button" class="css-g5y9jx r-sdzlij r-1phboty r-rs99b7 r-lrvibr r-15ysp7h r-4wgw6l r-1loqt21 r-o7ynqc r-6416eg r-1ny4l3l" style="border-color: rgba(0, 0, 0, 0); background-color: rgba(0, 0, 0, 0);" type="button" data-preview-close><div dir="ltr" class="css-146c3p1 r-qvutc0 r-37j5jr r-q4m81j r-a023e6 r-rjixqe r-b88u0q r-1awozwy r-6koalj r-18u37iz r-16y2uox r-bcqeeo r-1777fci" style="color: rgb(83, 100, 113);"><svg viewBox="0 0 24 24" aria-hidden="true" class="r-4qtqp9 r-yyyyoo r-dnmrzs r-bnwqim r-lrvibr r-m6rgpd r-1hjwoze r-12ym1je" style="color: rgb(83, 100, 113);"><g><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"></path></g></svg><div class="css-g5y9jx r-xoduu5"><span class="css-1jxf684 r-dnmrzs r-1udh08x r-1udbk01 r-3s2u2q r-bcqeeo r-1ttztb7 r-qvutc0 r-poiln3 r-1b43r93 r-1cwl3u0"></span></div></div></button></div>';
   document.head.append(style);
@@ -571,7 +577,7 @@ async function revealLazyContent(root) {
 
 async function capturePage() {
   const root = findRoot();
-  if (!root) throw new Error("请打开一条推文或 Article 后再试。");
+  if (!root) throw new Error("Open a post or Article and try again.");
   await revealLazyContent(root);
   const sourceHandle = decodeURIComponent(location.pathname.split("/").filter(Boolean)[0] || "");
   const blocks = [];
@@ -606,7 +612,7 @@ async function capturePage() {
     if (fallback) blocks.unshift({ type: "paragraph", text: fallback });
   }
   const content = globalThis.XToXhsMarkdown.blocksToMarkdown(blocks, { includeImages: false });
-  if (!content) throw new Error("没有读取到正文，请先等待页面加载完成。");
+  if (!content) throw new Error("No content found. Please wait for the page to finish loading.");
   const plainText = blocks
     .filter((block) => block.type !== "image")
     .map((block) => block.text || block.url || "")
@@ -632,7 +638,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       latestCapture = capture;
       sendResponse(capture);
     })
-    .catch((error) => sendResponse({ error: error.message || "读取失败。" }));
+    .catch((error) => sendResponse({ error: error.message || "Failed to read the content." }));
   return true;
 });
 
@@ -642,7 +648,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     openNativePreview();
     sendResponse({ ok: true });
   } catch (error) {
-    sendResponse({ error: error.message || "原生预览打开失败。" });
+    sendResponse({ error: error.message || "The native preview could not be opened." });
   }
 });
 

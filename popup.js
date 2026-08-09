@@ -15,27 +15,27 @@ async function copyMarkdown(capture) {
 
 button.addEventListener("click", async () => {
   button.disabled = true;
-  button.textContent = "正在整理…";
+  button.textContent = "Preparing…";
   button.setAttribute("aria-busy", "true");
-  setStatus("正在读取当前 X 页面…");
+  setStatus("Reading the current X page…");
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id || !/^https:\/\/(?:www\.)?(?:x|twitter)\.com\//u.test(tab.url || "")) {
-      throw new Error("打开一条推文或 Article 后即可提取。");
+      throw new Error("Open a post or Article to extract content.");
     }
     const capture = await chrome.tabs.sendMessage(tab.id, { type: "capture-x" });
     if (capture?.error) throw new Error(capture.error);
-    if (!capture?.content) throw new Error("没有读取到正文，请先等待页面加载完成。");
+    if (!capture?.content) throw new Error("No content found. Please wait for the page to finish loading.");
     await copyMarkdown(capture);
     try {
       const preview = await chrome.tabs.sendMessage(tab.id, { type: "open-native-preview" });
       if (preview?.error) throw new Error(preview.error);
       window.close();
     } catch {
-      setStatus("已复制 Markdown，但原生预览未能打开。", "error");
+      setStatus("Markdown copied, but the native preview could not be opened.", "error");
     }
   } catch (error) {
-    setStatus(error.message || "读取失败，请刷新 X 页面后重试。", "error");
+    setStatus(error.message || "Failed to read the page. Please refresh X and try again.", "error");
   } finally {
     button.disabled = false;
     button.textContent = DEFAULT_BUTTON_LABEL;

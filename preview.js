@@ -33,12 +33,12 @@ function inlineHtml(block) {
 function renderBlock(block) {
   if (block.type === "image") {
     const url = text(block.url || block.previewImageUrl);
-    return url ? `<img src="${escapeHtml(url)}" alt="${escapeHtml(block.altText || "X 原文图片")}">` : "";
+    return url ? `<img src="${escapeHtml(url)}" alt="${escapeHtml(block.altText || "Image from X")}">` : "";
   }
   if (block.type === "code") {
     const language = text(block.language);
     const header = language || "";
-    return `<div class="preview-code"><div class="preview-code-header"><span>${escapeHtml(header)}</span><button type="button" class="preview-code-copy" data-code-copy aria-label="复制代码" title="复制代码">▣</button></div><pre><code>${escapeHtml(block.text)}</code></pre></div>`;
+    return `<div class="preview-code"><div class="preview-code-header"><span>${escapeHtml(header)}</span><button type="button" class="preview-code-copy" data-code-copy aria-label="Copy code" title="Copy code">▣</button></div><pre><code>${escapeHtml(block.text)}</code></pre></div>`;
   }
   if (block.type === "heading") return `<h${Math.min(6, Math.max(1, Number(block.level) || 1))}>${inlineHtml(block)}</h${Math.min(6, Math.max(1, Number(block.level) || 1))}>`;
   if (block.type === "blockquote") return `<blockquote>${inlineHtml(block)}</blockquote>`;
@@ -53,22 +53,22 @@ function renderCapture(value) {
   const blocks = Array.isArray(value.blocks) ? value.blocks : [];
   const metadata = [value.authorName, value.authorHandle ? `@${value.authorHandle.replace(/^@/u, "")}` : "", value.publishedAt].filter(Boolean).join(" · ");
   const sourceUrl = /^https:\/\/(?:www\.)?(?:x|twitter)\.com\//u.test(value.sourceUrl || "") ? value.sourceUrl : "";
-  const sourceLink = sourceUrl ? `<a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noreferrer">查看原文</a>` : "";
-  const info = `<div class="preview-info"><span>图片不进入 Markdown</span>${metadata ? `<span>${escapeHtml(metadata)}</span>` : ""}${sourceLink}</div>`;
+  const sourceLink = sourceUrl ? `<a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noreferrer">View original</a>` : "";
+  const info = `<div class="preview-info"><span>Images are excluded from Markdown</span>${metadata ? `<span>${escapeHtml(metadata)}</span>` : ""}${sourceLink}</div>`;
   article.innerHTML = `${info}${blocks.map(renderBlock).join("")}`;
   copyButton.disabled = false;
-  document.title = value.title || "X 原文预览";
+  document.title = value.title || "X Article Preview";
 }
 
 async function loadCapture() {
   try {
     const result = await chrome.storage.session.get("latest-capture");
     await chrome.storage.session.remove("latest-capture");
-    if (!result["latest-capture"]) throw new Error("本次预览已过期，请返回 X 页面重新提取。");
+    if (!result["latest-capture"]) throw new Error("This preview has expired. Return to X and extract the content again.");
     renderCapture(result["latest-capture"]);
   } catch (error) {
-    article.innerHTML = `<p class="empty">${escapeHtml(error.message || "读取原文失败。")}</p>`;
-    status.textContent = "预览不可用";
+    article.innerHTML = `<p class="empty">${escapeHtml(error.message || "Failed to load the preview.")}</p>`;
+    status.textContent = "Preview unavailable";
   }
 }
 
@@ -76,10 +76,10 @@ copyButton.addEventListener("click", async () => {
   if (!capture) return;
   try {
     await navigator.clipboard.writeText(globalThis.XToXhsMarkdown.blocksToMarkdown(capture.blocks, { includeImages: false }));
-    copyButton.textContent = "已复制";
-    status.textContent = "已复制 Markdown（不含图片）";
+    copyButton.textContent = "Copied";
+    status.textContent = "Markdown copied (images excluded)";
   } catch {
-    status.textContent = "复制失败，请检查剪贴板权限。";
+    status.textContent = "Copy failed. Check clipboard permissions.";
   }
 });
 document.querySelector("#close").addEventListener("click", () => window.close());
@@ -90,9 +90,9 @@ article.addEventListener("click", async (event) => {
   try {
     await navigator.clipboard.writeText(code);
     button.textContent = "✓";
-    status.textContent = "代码已复制";
+    status.textContent = "Code copied";
   } catch {
-    status.textContent = "复制失败，请检查剪贴板权限。";
+    status.textContent = "Copy failed. Check clipboard permissions.";
   }
 });
 loadCapture();
