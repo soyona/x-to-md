@@ -40,7 +40,7 @@ test("Manifest 保持独立运行所需的最小权限", () => {
   const manifest = JSON.parse(readFileSync(new URL("../manifest.json", import.meta.url), "utf8"));
 
   assert.equal(manifest.name, "x-to-md");
-  assert.equal(manifest.version, "2.1.0");
+  assert.equal(manifest.version, "2.2.0");
   assert.deepEqual(manifest.permissions, ["activeTab", "storage"]);
   assert.equal(manifest.action.default_popup, undefined);
   assert.equal(manifest.background.service_worker, "background.js");
