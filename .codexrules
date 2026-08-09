@@ -1,0 +1,47 @@
+# x-to-md：Codex 项目规则
+
+本文件是本仓库的规则入口。系统、开发者和当前用户指令优先于本文件。
+
+## 授权与工作区
+
+- 审查、分析和计划保持只读；只有用户明确要求实现、修改或执行时才编辑文件。
+- 修改前先检查 `git status --short`，不得覆盖或提交无关的已有改动。
+- 未经用户明确要求，不创建分支、不提交、不推送、不发布。
+- 本仓库独立于 `x-to-xhs`；不得重新建立源码、测试、构建或运行时依赖。
+
+## 阅读与修改纪律
+
+- 只读取完成当前任务必需的规则、源码和上下文；使用精确检索，不做无目标全仓扫描。
+- 修改前优先选择最小方案；不为单一调用方创建抽象或新增依赖。
+- 编辑后清理由本次变更产生的无用代码、导入和测试。
+- 访问 `memory-bank/**` 前必须先读取 `memory-bank/README.md`。
+
+## 产品与安全边界
+
+- 扩展只在用户主动点击后读取当前 X/Twitter 页面 DOM；不调用 X API、oEmbed、公共代理或自建上传服务。
+- 内容只用于当前扩展会话中的预览和用户主动复制；预览数据只可使用 `chrome.storage.session`，读取后必须删除。
+- 不收集、不记录或上传用户正文、Cookie、令牌、账号信息和剪贴板内容。
+- 不添加远程脚本、远程代码执行、跟踪分析或不必要的网络权限。
+- `manifest.json` 的权限、主机范围和版本号是发布契约。新增权限或扩大 `host_permissions` 必须说明原因、补测试并获得用户明确授权。
+
+## 模块契约
+
+| 模块 | 职责 |
+|---|---|
+| `manifest.json` | Manifest V3、最小权限和 X/Twitter 匹配范围 |
+| `content.js` | 用户触发后的 DOM 提取、折叠内容展开与 Capture 结构 |
+| `markdown.js` | Capture blocks 到 Markdown 的纯转换 |
+| `popup.*` | 当前标签页校验、采集触发、复制与会话写入 |
+| `preview.*` | 一次性会话数据的展示、复制与删除 |
+| `test/` | Markdown、选择器兼容性与 Manifest 权限回归 |
+
+- `markdown.js` 必须保持无浏览器页面依赖，以便 Node 测试直接执行。
+- `content.js` 的选择器变更必须保留正文、标题、列表、引用和代码块的既有 Markdown 语义；图片默认不进入复制结果。
+- Popup、Content Script 与 Preview 的消息/存储键变更属于契约变更，必须同步测试和 `memory-bank/techContext.md`。
+
+## 验证与文档
+
+- 文档或规则变更：运行 `git diff --check`。
+- Markdown、采集、Manifest 或交互逻辑变更：运行 `npm test` 和 `git diff --check`。
+- 除非用户明确要求浏览器或视觉验收，不调用浏览器自动化；自动化测试不替代真实 X 页面兼容性验收。
+- 架构、权限、数据边界或模块契约变化时，同步更新 `memory-bank/techContext.md` 和 `memory-bank/activeContext.md`；完成可验证任务后更新 `memory-bank/progress.md`。
