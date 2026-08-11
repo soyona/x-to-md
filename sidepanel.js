@@ -11,12 +11,11 @@ const state = {
   candidateSort: "addedAt",
   candidateQuery: "",
   candidateDate: "today",
+  statsDate: "thisWeek",
   assetFilter: "all",
   assetQuery: "",
-  candidatePreviews: {},
   candidateMenu: null,
   currentContext: null,
-  undoAction: null,
 };
 
 function escapeHtml(value) {
@@ -34,12 +33,17 @@ function setStatus(message = "", kind = "") {
   status.className = `status ${kind}`.trim();
   if (message && kind !== "error") setStatus.clearTimer = window.setTimeout(() => setStatus(), 3200);
 }
+function candidateId(candidate) {
+  const source = articleId(candidate?.sourceUrl || "");
+  return candidate?.id || `article_${source.split("/").pop() || "unknown"}`;
+}
 async function loadData() {
   const stored = await chrome.storage.local.get(STORAGE_KEY);
   state.data = { ...state.data, ...(stored[STORAGE_KEY] || {}) };
   state.data.subscriptions ||= [];
   state.data.candidates ||= [];
   state.data.assets ||= [];
+  state.data.candidates = state.data.candidates.map((candidate) => ({ ...candidate, id: candidateId(candidate) }));
 }
 async function saveData() { await chrome.storage.local.set({ [STORAGE_KEY]: state.data }); }
 async function activeTab() {
@@ -81,18 +85,17 @@ function renderCurrentContext() {
     return;
   }
   const context = state.currentContext;
-  const undo = state.undoAction ? `<button class="link-button context-undo" data-action="undo-ignore" type="button">撤销忽略</button>` : "";
   if (!context || context.pageKind === "unsupported" || context.pageKind === "x-page") {
-    currentContext.innerHTML = `${context?.pageKind === "unsupported" ? `<span>请打开 X 页面以使用当前内容操作</span>` : ""}${undo}`;
+    currentContext.innerHTML = context?.pageKind === "unsupported" ? "<span>请打开 X 页面以使用当前内容操作</span>" : "";
     return;
   }
   if (context.pageKind === "author-articles") {
-    currentContext.innerHTML = `<div><strong>${escapeHtml(context.authorHandle || "当前作者")}</strong><span>可在 X 原文中将 Article 加入收件箱</span></div>${undo}`;
+    currentContext.innerHTML = `<div><strong>${escapeHtml(context.authorHandle || "当前作者")}</strong><span>可在 X 原文中将 Article 加入收件箱</span></div>`;
     return;
   }
   const candidate = state.data.candidates.find((item) => articleId(item.sourceUrl) === articleId(context.candidateUrl || context.sourceUrl));
   const saved = state.data.assets.some((item) => articleId(item.sourceUrl) === articleId(context.sourceUrl));
-  currentContext.innerHTML = `<div><strong>${escapeHtml(contextLabel(context))}</strong><span>${escapeHtml(context.authorHandle || "X Article")}</span></div><button class="primary-button" data-action="context-save" type="button" ${saved ? "disabled" : ""}>${saved ? "已保存" : "保存并复制 Markdown"}</button>${candidate ? `<small>当前候选 · ${escapeHtml(candidate.status === "new" ? "待处理" : candidate.status)}</small>` : ""}${undo}`;
+  currentContext.innerHTML = `<div><strong>${escapeHtml(contextLabel(context))}</strong><span>${escapeHtml(context.authorHandle || "X Article")}</span></div><button class="primary-button" data-action="context-save" type="button" ${saved ? "disabled" : ""}>${saved ? "已保存" : "保存并复制 Markdown"}</button>${candidate ? `<small>当前候选 · ${escapeHtml(candidate.status === "new" ? "待处理" : candidate.status)}</small>` : ""}`;
 }
 async function refreshContext({ resetPage = true } = {}) {
   const tab = await activeTab();
@@ -125,16 +128,16 @@ function shiftDate(date, days) {
   shifted.setDate(shifted.getDate() + days);
   return shifted;
 }
-function dateRangeForFilter() {
+function dateRangeForFilter(filter = state.candidateDate) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  if (state.candidateDate === "today") return { start: today, end: shiftDate(today, 1), label: "今日" };
-  if (state.candidateDate === "yesterday") return { start: shiftDate(today, -1), end: today, label: "昨日" };
+  if (filter === "today") return { start: today, end: shiftDate(today, 1), label: "今日" };
+  if (filter === "yesterday") return { start: shiftDate(today, -1), end: today, label: "昨日" };
   const mondayOffset = (today.getDay() + 6) % 7;
   const thisMonday = shiftDate(today, -mondayOffset);
-  if (state.candidateDate === "thisWeek") return { start: thisMonday, end: shiftDate(thisMonday, 7), label: "本周" };
-  if (state.candidateDate === "lastWeek") return { start: shiftDate(thisMonday, -7), end: thisMonday, label: "上周" };
-  if (state.candidateDate === "thisMonth") {
+  if (filter === "thisWeek") return { start: thisMonday, end: shiftDate(thisMonday, 7), label: "本周" };
+  if (filter === "lastWeek") return { start: shiftDate(thisMonday, -7), end: thisMonday, label: "上周" };
+  if (filter === "thisMonth") {
     const start = new Date(today.getFullYear(), today.getMonth(), 1);
     return { start, end: new Date(today.getFullYear(), today.getMonth() + 1, 1), label: "本月" };
   }
@@ -162,11 +165,11 @@ function filteredCandidates() {
 function activeCandidates() {
   return state.data.candidates.filter((candidate) => candidate.status !== "ignored" && candidate.status !== "saved");
 }
-function chartData() {
-  const range = dateRangeForFilter();
+function chartData(filter = state.candidateDate) {
+  const range = dateRangeForFilter(filter);
   const days = Math.max(1, Math.ceil((range.end - range.start) / 86400000));
   const counts = Array.from({ length: days }, () => 0);
-  activeCandidates().forEach((candidate) => {
+  state.data.candidates.forEach((candidate) => {
     const time = timestamp(candidate.addedAt);
     if (time < range.start.valueOf() || time >= range.end.valueOf()) return;
     const index = Math.floor((time - range.start.valueOf()) / 86400000);
@@ -177,8 +180,8 @@ function chartData() {
 function chartLabel(date) {
   return `${date.getMonth() + 1}/${date.getDate()}`;
 }
-function renderCandidateChart() {
-  const { range, counts } = chartData();
+function renderStatsChart() {
+  const { range, counts } = chartData(state.statsDate);
   const max = Math.max(1, ...counts);
   const width = 360;
   const height = 128;
@@ -200,7 +203,9 @@ function renderCandidateChart() {
     const x = counts.length === 1 ? left + plotWidth / 2 : left + (index / (counts.length - 1)) * plotWidth;
     return `<text x="${x.toFixed(1)}" y="${height - 8}" text-anchor="middle">${escapeHtml(chartLabel(date))}</text>`;
   }).join("");
-  return `<div class="candidate-chart" aria-label="${escapeHtml(range.label)}添加文章趋势"><div class="candidate-chart-heading"><strong>添加趋势</strong><span>${escapeHtml(range.label)} · ${counts.reduce((sum, count) => sum + count, 0)} 篇</span></div><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="按添加日期统计文章数量"><line class="chart-axis" x1="${left}" y1="${top}" x2="${left}" y2="${height - bottom}"/><line class="chart-axis" x1="${left}" y1="${height - bottom}" x2="${width - right}" y2="${height - bottom}"/><text class="chart-y-label" x="4" y="${top + 4}">${max}</text><text class="chart-y-label" x="14" y="${height - bottom + 4}">0</text><polyline class="chart-line" points="${points}"/>${labels}</svg></div>`;
+  const total = counts.reduce((sum, count) => sum + count, 0);
+  const summary = counts.map((count, index) => `${chartLabel(new Date(range.start.getTime() + index * 86400000))} ${count} 篇`).join("，");
+  return `<section class="stats-chart candidate-chart" aria-label="${escapeHtml(range.label)}新增候选趋势"><div class="stats-chart-heading"><strong>新增候选趋势</strong><span>${escapeHtml(range.label)} · ${total} 篇</span></div><p class="stats-chart-summary">${escapeHtml(summary || "暂无数据")}</p><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="按添加日期统计文章数量"><line class="chart-axis" x1="${left}" y1="${top}" x2="${left}" y2="${height - bottom}"/><line class="chart-axis" x1="${left}" y1="${height - bottom}" x2="${width - right}" y2="${height - bottom}"/><text class="chart-y-label" x="4" y="${top + 4}">${max}</text><text class="chart-y-label" x="14" y="${height - bottom + 4}">0</text><polyline class="chart-line" points="${points}"/>${labels}</svg></section>`;
 }
 function sortedCandidates(candidates) {
   return candidates
@@ -225,16 +230,29 @@ function xIcon(icon) {
   if (!icon?.paths?.length) return "";
   return `<svg class="article-icon" viewBox="${escapeHtml(icon.viewBox)}" aria-hidden="true">${icon.paths.map((path) => `<path d="${escapeHtml(path)}"></path>`).join("")}</svg>`;
 }
+function verifiedBadge() {
+  return `<span class="verified-badge article-verified" role="img" aria-label="Verified account"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22.25 12c0-1.43-.88-2.67-2.11-3.2.44-1.29.1-2.75-.92-3.77-1.01-1.01-2.48-1.36-3.77-.91C14.92 2.88 13.68 2 12.25 2s-2.67.88-3.2 2.12c-1.29-.45-2.75-.1-3.77.91-1.01 1.02-1.36 2.48-.91 3.77-1.24.53-2.12 1.77-2.12 3.2s.88 2.67 2.12 3.2c-.45 1.29-.1 2.75.91 3.77 1.02 1.01 2.48 1.36 3.77.91.53 1.24 1.77 2.12 3.2 2.12s2.67-.88 3.2-2.12c1.29.45 2.76.1 3.77-.91 1.02-1.02 1.36-2.48.92-3.77 1.23-.53 2.11-1.77 2.11-3.2zm-11.71 4.2-3.38-3.37 1.41-1.42 1.97 1.98 4.86-4.86 1.41 1.42-6.27 6.25z"></path></svg></span>`;
+}
+function snapshotMetric(snapshot, key) {
+  const item = snapshot?.[key];
+  return `<span class="article-engagement-item article-engagement-${key}" aria-hidden="true"><span class="article-action-icon">${xIcon(item)}</span>${item?.count ? `<span>${escapeHtml(item.count)}</span>` : ""}</span>`;
+}
+function snapshotAction(snapshot, key) {
+  return `<span class="article-snapshot-action article-snapshot-${key}" aria-hidden="true">${xIcon(snapshot?.[key])}</span>`;
+}
 function candidateCell(candidate) {
-  const statusLabel = { new: "新发现", viewed: "已查看", extracted: "已提取", ignored: "已忽略", saved: "已保存素材" }[candidate.status] || "新发现";
+  const statusLabel = { new: "新发现", viewed: "已查看", extracted: "已提取", ignored: "已从收件箱移除", saved: "已保存素材" }[candidate.status] || "新发现";
   const authorName = candidate.authorName || candidate.authorHandle || "未知作者";
-  const preview = state.candidatePreviews[articleId(candidate.sourceUrl)] || {};
   const avatar = candidate.authorAvatarUrl ? `<img src="${escapeHtml(candidate.authorAvatarUrl)}" alt="" />` : escapeHtml(avatarLabel(candidate));
-  const cover = candidate.coverImageUrl ? `<img src="${escapeHtml(candidate.coverImageUrl)}" alt="" />` : `<span class="article-card-placeholder" aria-hidden="true"></span>`;
-  const excerpt = preview.excerpt ? `<span class="article-card-excerpt">${escapeHtml(preview.excerpt)}</span>` : "";
-  const engagement = (preview.engagement || []).map((item) => `<span class="article-engagement-item">${xIcon(item)}<span>${escapeHtml(item.count)}</span></span>`).join("");
-  const menu = state.candidateMenu === candidate.id ? `<div class="candidate-menu" role="menu">${candidate.status === "extracted" ? `<button data-action="candidate-save" data-id="${escapeHtml(candidate.id)}" type="button" role="menuitem">添加至素材库</button>` : ""}<button data-action="candidate-ignore" data-id="${escapeHtml(candidate.id)}" type="button" role="menuitem">忽略候选</button></div>` : "";
-  return `<article class="article-post" data-candidate="${escapeHtml(candidate.id)}"><span class="sr-only">${escapeHtml(statusLabel)}</span><div class="article-avatar" aria-hidden="true">${avatar}</div><div class="article-content"><div class="article-author"><strong>${escapeHtml(authorName)}</strong><span>${escapeHtml(candidate.authorHandle || "")}</span><span>· ${escapeHtml(formatDate(candidate.publishedAt))}</span><button class="article-more" data-action="candidate-menu" data-id="${escapeHtml(candidate.id)}" type="button" aria-label="候选操作" aria-expanded="${state.candidateMenu === candidate.id}">•••</button></div><a class="article-card" data-action="candidate-open" data-id="${escapeHtml(candidate.id)}" href="${escapeHtml(candidate.sourceUrl)}" target="_blank" rel="noreferrer"><span class="article-card-media">${cover}<span class="article-card-badge">𝕏 Article</span></span><span class="article-card-body"><strong>${escapeHtml(candidate.title)}</strong>${excerpt}</span></a><div class="article-engagement" aria-label="Article engagement">${engagement}</div>${menu}</div></article>`;
+  const verified = candidate.authorVerified ? verifiedBadge() : "";
+  const media = candidate.coverImageUrl ? `<span class="article-card-media"><img src="${escapeHtml(candidate.coverImageUrl)}" alt="" /><span class="article-card-badge">𝕏 Article</span></span>` : "";
+  const excerpt = candidate.previewExcerpt ? `<span class="article-card-excerpt">${escapeHtml(candidate.previewExcerpt)}</span>` : "";
+  const snapshot = candidate.engagementSnapshot || {};
+  const engagementLabel = ["reply", "repost", "like", "views"].map((key) => snapshot[key]?.count ? `${key} ${snapshot[key].count}` : "").filter(Boolean).join("，") || "暂无互动数据";
+  const metrics = ["reply", "repost", "like", "views"].map((key) => snapshotMetric(snapshot, key)).join("");
+  const utility = xIcon(candidate.utilityIconSnapshot);
+  const removeButton = `<button class="article-inbox-remove" data-action="candidate-remove" data-id="${escapeHtml(candidate.id)}" type="button" aria-label="从收件箱移除" title="从收件箱移除" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4.5C4 3.12 5.119 2 6.5 2h11C18.881 2 20 3.12 20 4.5v18.44l-8-5.71-8 5.71V4.5z"></path></svg></button>`;
+  return `<article class="article-post" data-candidate="${escapeHtml(candidate.id)}" data-source-url="${escapeHtml(articleId(candidate.sourceUrl))}"><span class="sr-only">${escapeHtml(statusLabel)}</span><div class="article-avatar" aria-hidden="true">${avatar}</div><div class="article-content"><div class="article-author"><strong><span class="article-author-name">${escapeHtml(authorName)}</span>${verified}</strong><span class="article-handle">${escapeHtml(candidate.authorHandle || "")}</span><span class="article-date">· ${escapeHtml(formatDate(candidate.publishedAt))}</span><span class="article-author-actions" aria-hidden="true"><span class="article-utility-slot">${utility}</span><span class="article-overflow-slot"></span></span></div><a class="article-card" data-action="candidate-open" data-id="${escapeHtml(candidate.id)}" href="${escapeHtml(candidate.sourceUrl)}" target="_blank" rel="noreferrer">${media}<span class="article-card-body"><strong>${escapeHtml(candidate.title)}</strong>${excerpt}</span></a><div class="article-engagement" role="group" aria-label="${escapeHtml(engagementLabel)}"><span class="article-engagement-metrics">${metrics}</span><span class="article-engagement-actions">${removeButton}${snapshotAction(snapshot, "bookmark")}${snapshotAction(snapshot, "share")}</span></div></div></article>`;
 }
 function renderCandidates() {
   const candidates = sortedCandidates(filteredCandidates());
@@ -244,12 +262,12 @@ function renderCandidates() {
   const range = dateRangeForFilter();
   const context = `<div class="candidate-context"><span>收件箱总数 ${total} · ${range.label} ${candidates.length} 篇</span><div class="candidate-sort" role="group" aria-label="收件箱排序"><button class="${state.candidateSort === "addedAt" ? "is-active" : ""}" data-candidate-sort="addedAt" type="button">最近添加</button><button class="${state.candidateSort === "publishedAt" ? "is-active" : ""}" data-candidate-sort="publishedAt" type="button">最新发表</button></div></div>`;
   const emptyMessage = hasCandidates ? "当前筛选条件下没有匹配的 Article。" : "还没有候选 Article。前往关注作者，打开作者的 Articles 页面并手动获取。";
-  view.innerHTML = `${filters}${renderCandidateChart()}${context}${candidates.length ? candidates.map(candidateCell).join("") : `<p class="empty">${emptyMessage}</p>`}`;
+  view.innerHTML = `${filters}${context}${candidates.length ? candidates.map(candidateCell).join("") : `<p class="empty">${emptyMessage}</p>`}`;
 }
 function subscriptionCell(subscription) {
   const name = subscription.displayName || subscription.handle;
   const profileUrl = `https://x.com/${String(subscription.handle || "").replace(/^@/u, "")}`;
-  const verified = subscription.authorVerified ? `<span class="verified-badge" role="img" aria-label="Verified account"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22.25 12c0-1.43-.88-2.67-2.11-3.2.44-1.29.1-2.75-.92-3.77-1.01-1.01-2.48-1.36-3.77-.91C14.92 2.88 13.68 2 12.25 2s-2.67.88-3.2 2.12c-1.29-.45-2.75-.1-3.77.91-1.01 1.02-1.36 2.48-.91 3.77-1.24.53-2.12 1.77-2.12 3.2s.88 2.67 2.12 3.2c-.45 1.29-.1 2.75.91 3.77 1.02 1.01 2.48 1.36 3.77.91.53 1.24 1.77 2.12 3.2 2.12s2.67-.88 3.2-2.12c1.29.45 2.76.1 3.77-.91 1.02-1.02 1.36-2.48.92-3.77 1.23-.53 2.11-1.77 2.11-3.2zm-11.71 4.2-3.38-3.37 1.41-1.42 1.97 1.98 4.86-4.86 1.41 1.42-6.27 6.25z"></path></svg></span>` : "";
+  const verified = subscription.authorVerified ? verifiedBadge() : "";
   const avatar = subscription.authorAvatarUrl
     ? `<img src="${escapeHtml(subscription.authorAvatarUrl)}" alt="" />`
     : escapeHtml(avatarLabel({ authorName: name, authorHandle: subscription.handle }));
@@ -266,11 +284,21 @@ function renderAssets() {
   const assets = state.data.assets.filter((asset) => (state.assetFilter === "all" || (state.assetFilter === "unused" && asset.usageStatus === "unused") || (state.assetFilter === "used" && asset.usageStatus === "used")) && (!query || `${asset.title} ${asset.authorHandle} ${asset.tags?.join(" ")}`.toLowerCase().includes(query)));
   view.innerHTML = `<div class="context"><span>只保存你主动确认的 Markdown</span>${state.currentContext?.pageKind === "article" ? `<button class="link-button" data-action="save-current" type="button">保存并复制 Markdown</button>` : ""}</div><input class="search" data-asset-search type="search" placeholder="搜索素材" value="${escapeHtml(state.assetQuery)}" aria-label="搜索素材"><div class="tabs"><button class="filter-tab ${state.assetFilter === "all" ? "is-active" : ""}" data-filter="all" type="button">全部</button><button class="filter-tab ${state.assetFilter === "unused" ? "is-active" : ""}" data-filter="unused" type="button">未使用</button><button class="filter-tab ${state.assetFilter === "used" ? "is-active" : ""}" data-filter="used" type="button">已用于创作</button></div>${assets.length ? assets.map((asset) => `<article class="cell"><a class="cell-title" href="${escapeHtml(asset.sourceUrl)}" target="_blank" rel="noreferrer">${escapeHtml(asset.title)}</a><div class="cell-meta">${escapeHtml(asset.authorHandle || "")} · 保存于 ${escapeHtml(formatDate(asset.createdAt))}${asset.tags?.length ? ` · ${escapeHtml(asset.tags.join("、"))}` : ""}</div><p class="cell-meta">${escapeHtml((asset.markdown || "").slice(0, 180))}${asset.markdown?.length > 180 ? "…" : ""}</p><div class="cell-actions"><button class="link-button" data-action="asset-copy" data-id="${escapeHtml(asset.id)}" type="button">复制 Markdown</button><button class="article-more" data-action="asset-menu" data-id="${escapeHtml(asset.id)}" type="button" aria-label="素材操作">•••</button>${state.candidateMenu === asset.id ? `<div class="candidate-menu asset-menu" role="menu"><button data-action="asset-open" data-id="${escapeHtml(asset.id)}" type="button" role="menuitem">打开原文</button><button data-action="asset-edit" data-id="${escapeHtml(asset.id)}" type="button" role="menuitem">编辑标签/备注</button><button data-action="asset-toggle-used" data-id="${escapeHtml(asset.id)}" type="button" role="menuitem">${asset.usageStatus === "used" ? "标记未使用" : "标记已用于创作"}</button><button data-action="asset-delete" data-id="${escapeHtml(asset.id)}" type="button" role="menuitem">删除素材</button></div>` : ""}</div></article>`).join("") : `<p class="empty">还没有已保存的素材。完成“保存并复制 Markdown”后，素材会出现在这里。</p>`}`;
 }
+function renderStats() {
+  const range = dateRangeForFilter(state.statsDate);
+  const { counts } = chartData(state.statsDate);
+  const total = counts.reduce((sum, count) => sum + count, 0);
+  const pending = activeCandidates().length;
+  const dates = ["today", "yesterday", "thisWeek", "lastWeek", "thisMonth"];
+  const dateTabs = dates.map((date) => `<button class="stats-date-tab ${state.statsDate === date ? "is-active" : ""}" data-stats-date="${date}" type="button">${dateRangeForFilter(date).label}</button>`).join("");
+  view.innerHTML = `<div class="stats-filters" role="group" aria-label="统计日期范围">${dateTabs}</div><section class="stats-summary" aria-label="统计摘要"><div><span>本范围新增</span><strong>${total}</strong><small>${escapeHtml(range.label)}</small></div><div><span>当前待处理</span><strong>${pending}</strong><small>未移除或未保存</small></div></section>${total ? renderStatsChart() : `<p class="empty stats-empty">${escapeHtml(range.label)}还没有新增 Article。</p>`}`;
+}
 function render() {
   document.querySelectorAll("[data-view]").forEach((tab) => tab.classList.toggle("is-active", tab.dataset.view === state.page));
-  pageTitle.textContent = { candidates: "收件箱", subscriptions: "关注作者", assets: "素材库" }[state.page] || "收件箱";
+  pageTitle.textContent = { candidates: "收件箱", subscriptions: "关注作者", assets: "素材库", stats: "统计" }[state.page] || "收件箱";
   if (state.page === "candidates") renderCandidates();
   else if (state.page === "subscriptions") renderSubscriptions();
+  else if (state.page === "stats") renderStats();
   else renderAssets();
   renderCurrentContext();
 }
@@ -303,23 +331,14 @@ async function handleAction(action, target) {
     setStatus("已取消关注");
     return;
   }
-  const candidate = state.data.candidates.find((item) => item.id === idValue);
-  if (candidate && action === "candidate-menu") { state.candidateMenu = state.candidateMenu === candidate.id ? null : candidate.id; return render(); }
+  const sourceUrl = target.closest("[data-source-url]")?.dataset.sourceUrl;
+  const candidate = state.data.candidates.find((item) => item.id === idValue)
+    || state.data.candidates.find((item) => articleId(item.sourceUrl) === sourceUrl);
   if (candidate && action === "candidate-open") { candidate.status = candidate.status === "new" ? "viewed" : candidate.status; await saveData(); window.open(candidate.sourceUrl, "_blank"); return render(); }
-  if (candidate && action === "candidate-ignore") {
+  if (candidate && action === "candidate-remove") {
     candidate.status = "ignored";
-    state.undoAction = { type: "candidate-restore", id: candidate.id };
-    await saveData(); render(); setStatus("候选已忽略 · 3 秒内可撤销");
-    window.setTimeout(() => { state.undoAction = null; renderCurrentContext(); }, 3200);
+    await saveData(); render(); setStatus("已从收件箱移除");
     return;
-  }
-  if (candidate && action === "candidate-save") return saveCurrentExtraction(candidate);
-  if (candidate && action === "candidate-restore") { candidate.status = "new"; await saveData(); return render(); }
-  if (action === "undo-ignore" && state.undoAction?.type === "candidate-restore") {
-    const ignored = state.data.candidates.find((item) => item.id === state.undoAction.id);
-    if (ignored) ignored.status = "new";
-    state.undoAction = null;
-    await saveData(); render(); setStatus("候选已恢复"); return;
   }
   const asset = state.data.assets.find((item) => item.id === idValue);
   if (action === "save-current" || action === "context-save") return saveCurrentExtraction();
@@ -339,6 +358,8 @@ document.addEventListener("click", async (event) => {
   if (candidateSort) { state.candidateSort = candidateSort.dataset.candidateSort; renderCandidates(); return; }
   const candidateDate = event.target.closest("[data-candidate-date]");
   if (candidateDate) { state.candidateDate = candidateDate.dataset.candidateDate; renderCandidates(); return; }
+  const statsDate = event.target.closest("[data-stats-date]");
+  if (statsDate) { state.statsDate = statsDate.dataset.statsDate; renderStats(); return; }
   const filter = event.target.closest("[data-filter]");
   if (filter) { state.assetFilter = filter.dataset.filter; render(); return; }
   const action = event.target.closest("[data-action]");

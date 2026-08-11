@@ -35,17 +35,18 @@
 | Chrome Action Popup | 快捷入口：提取当前页、打开 Side Panel |
 | Chrome Side Panel | 订阅源、候选集、素材库 |
 
-Side Panel 以 X 的窄栏信息密度为视觉基准；用户无需离开 X，就能在右侧完成筛选和管理。候选 Article 的正文不在 Side Panel 中伪造展示，标题点击后打开 X 原文，再由原页面完成真实 DOM 提取。
+Side Panel 以当前 X Bookmarks 中栏为候选卡的像素级视觉基准；用户无需离开 X，就能在右侧完成筛选和管理。候选阶段只保存用户加入时 Card 上实际可见的摘要与互动快照，不保存完整 Article 正文；标题点击后打开 X 原文，再由原页面完成真实 DOM 提取。
 
 ## 4. 核心导航
 
-Side Panel 使用 X 式窄栏信息密度和底部 Tab 导航，收件箱内容区直接承载筛选、统计与列表：
+Side Panel 使用 X 式窄栏信息密度和底部 Tab 导航，提供四个一级入口：
 
 - 候选集：当前待处理的 Article；
 - 关注作者：X UserCell 作者列表与关注状态；
-- 素材库：用户已经主动保存的 Markdown 素材。
+- 素材库：用户已经主动保存的 Markdown 素材；
+- 统计：按时间范围查看历史新增候选趋势。
 
-不使用左侧导航栏、数字步骤、仪表盘卡片、统计图表或独立后台壳层。
+不使用左侧导航栏、数字步骤、仪表盘卡片或独立后台壳层；统计图表只在“统计”入口展示。
 
 ## 5. 页面设计
 
@@ -68,27 +69,39 @@ Side Panel 使用 X 式窄栏信息密度和底部 Tab 导航，收件箱内容�
 
 页面结构：
 
-1. 收件箱顶部直接显示筛选、总数和添加趋势，不使用独立的标题/搜索图标顶栏；
+1. 收件箱顶部直接显示筛选、总数和排序，不使用独立的标题/搜索图标顶栏；
 2. 收件箱默认显示今日，支持昨日、本周、上周和本月；所有日期按候选 `addedAt` 的本地日历时间计算；
 3. 搜索框按文章标题、作者名、handle 和 URL 过滤；
-4. 添加趋势使用 X 风格内联折线图，x 轴为日期，y 轴为文章数量；
-5. Article Cell 列表；
-6. 每个 Cell 包含头像、作者名、handle、发布时间、Article 标题、来源和处理状态；
-7. 标题卡片点击打开原始 X Article，并将候选标记为已查看；
-8. 用户回到原文页后点击现有 `Extract and copy`；
-9. 候选状态更新为 `已提取`，候选卡右上角 `•••` 菜单提供 `添加至素材库`；用户在该原文标签页点击后，Markdown 保存到素材库且候选从当前列表移除；
-10. 每个候选卡右上角 `•••` 菜单提供 `忽略候选`，点击后从当前列表移除并保留记录，以便原文 Bookmark 再次收藏时复用；
-11. 不在收件箱菜单或 Extract and copy 流程中提供 X 原样预览，文章卡片本身负责打开原文。
+4. Article Cell 按 X Bookmarks Card 重建：`40px` 头像、作者行、Article 媒体卡和完整互动快照栏；
+5. 作者行包含姓名、认证标识、handle、发布时间与 Grok 展示槽；右侧 `•••` 不显示、不实现，但保留相同几何槽位；
+6. Article 卡包含约 `2.55:1` 封面、`15px/20px` 标题与加入时实际可见的摘要；旧候选缺字段时省略对应内容，不伪造占位数据；
+7. 互动栏展示回复、转发、点赞、浏览、扩展书签、X 原生书签和分享快照；只有扩展书签具有按钮语义；
+8. 点击标题卡片打开原始 X Article，并将候选标记为已查看；用户在原文页通过现有“保存并复制 Markdown”操作将完整 Markdown 保存到素材库；
+9. 扩展书签默认显示蓝色已在收件箱状态，hover/focus 切换为红色 destructive 状态，名称统一为“从收件箱移除”；点击后写入内部 `ignored` 墓碑并立即从活动列表移除，素材库不受影响；
+10. 原文 Bookmark 入口再次添加同一 URL 时复用历史记录、补齐最新可见快照并恢复为 `new`，不产生重复候选。
+
+### 5.3 统计
+
+目标：独立查看候选 Article 的历史新增趋势，不干扰收件箱处理状态。
+
+页面结构：
+
+1. 统计入口位于 Side Panel 一级导航，默认时间范围为本周；
+2. 支持今日、昨日、本周、上周和本月；统计时间范围与收件箱筛选独立；
+3. 显示“本范围新增”和“当前待处理”两个摘要指标；
+4. 使用 X 风格折线图展示按 `addedAt` 统计的每日新增数量；
+5. 新增趋势包含所有候选状态，包括 `ignored` 和 `saved`；当前待处理排除这两类状态；
+6. 图表同时提供文字数据摘要，空范围显示明确的无数据说明。
 
 候选状态：
 
 - `新发现`
 - `已查看`
 - `已提取`
-- `已忽略`
+- `已从收件箱移除`（内部状态仍为 `ignored`）
 - `已保存素材`
 
-### 5.3 素材库
+### 5.4 素材库
 
 目标：管理已经主动保存的 Markdown 素材，而不是保存所有发现内容。
 
@@ -140,6 +153,18 @@ flowchart LR
   "sourceUrl": "https://x.com/zostaff/status/1842517662829531137",
   "authorHandle": "@zostaff",
   "title": "Harness Engineering: Designing the Scaffolding That Every Agent Needs",
+  "authorName": "zostaff",
+  "authorAvatarUrl": "https://pbs.twimg.com/profile_images/example.jpg",
+  "authorVerified": true,
+  "coverImageUrl": "https://pbs.twimg.com/media/example.jpg",
+  "previewExcerpt": "加入收件箱时 X Card 上实际可见的摘要",
+  "engagementSnapshot": {
+    "reply": { "count": "38", "viewBox": "0 0 24 24", "paths": ["..."] },
+    "repost": { "count": "15", "viewBox": "0 0 24 24", "paths": ["..."] },
+    "like": { "count": "145", "viewBox": "0 0 24 24", "paths": ["..."] },
+    "views": { "count": "51K", "viewBox": "0 0 24 24", "paths": ["..."] }
+  },
+  "previewCapturedAt": "2026-08-10T12:05:00Z",
   "publishedAt": "2026-08-08T10:00:00Z",
   "discoveredAt": "2026-08-10T12:00:00Z",
   "addedAt": "2026-08-10T12:05:00Z",
@@ -148,7 +173,7 @@ flowchart LR
 }
 ```
 
-候选以规范化 Article URL/ID 去重。`addedAt` 记录用户加入收件箱的时间；收件箱默认按它降序，也可按 `publishedAt` 降序。候选阶段不保存正文，不保存 Cookie、令牌或剪贴板内容。
+候选以规范化 Article URL/ID 去重。`addedAt` 记录用户加入收件箱的时间；收件箱默认按它降序，也可按 `publishedAt` 降序。`previewExcerpt`、认证状态和互动快照只在用户主动加入时从当前 Card 局部 DOM 获取并写入 `chrome.storage.local`；不调用 X API，不后台打开页面。候选阶段不保存完整正文，不保存 Cookie、令牌或剪贴板内容。
 
 ### 7.3 素材 `assets`
 
@@ -169,7 +194,7 @@ flowchart LR
 
 ## 8. X UI 视觉铁律
 
-本项目的视觉基准来自用户当前打开的 X Article 页面，并已记录于仓库级 [AGENTS.md](../../AGENTS.md)。
+候选 Card 的唯一视觉基准是用户提供的当前 X Bookmarks 中栏截图，并已记录于仓库级 [AGENTS.md](../../AGENTS.md)。600 CSS px、@2x 为严格复刻基准；窄 Side Panel 采用 X 式流式收缩，不缩放字体和图标。
 
 已读取到的实际样式基准：
 
@@ -184,7 +209,10 @@ flowchart LR
 | Follow/主按钮 | `36px`，`border-radius: 9999px`，黑色背景 |
 | 作者名 | `15px / 20px`，`font-weight: 700` |
 | Article Cell 内边距 | 左右 `16px` |
-| Article 封面 | 顶部圆角 `12px` |
+| 候选头像 | `40px`，与内容列间距 `12px` |
+| Article 封面 | 约 `2.55:1`，圆角 `12px` |
+| 候选标题与摘要 | `15px / 20px` |
+| 互动栏图标 | `18.75px`；只有扩展书签可交互 |
 | 搜索输入 | `14px / 16px`，高度 `40px` |
 
 实现要求：
@@ -227,7 +255,7 @@ flowchart LR
 - 关注作者页不存在手动添加、详情、编辑、启停、扫描或独立删除入口；
 - 获取结果按 Article URL/ID 去重；
 - Article 卡片或原文的原生 Bookmark 按钮在 hover/focus 时，于其左侧相邻位置显示书签操作，不得遮挡原生 Bookmark；未在收件箱时显示蓝色“添加至收件箱”，已在收件箱时显示实心书签状态并在 hover/focus 切换为红色“从收件箱移除”；移除后可再次添加，`ignored`/`saved` 历史候选会复用并恢复为 `new`，不产生重复 URL，且不会删除素材库；左侧空间不足时回退到右侧；
-- 可以将 Article 加入候选集、忽略候选、重新获取；
+- 可以将 Article 加入收件箱、从收件箱移除并再次加入；两个移除入口均写入同一 `ignored` 墓碑状态并从活动统计中排除；
 - 点击候选标题能打开对应 X 原文；
 - 现有 Extract and copy 链路不被破坏；
 - 用户主动保存后素材进入素材库；
@@ -235,8 +263,9 @@ flowchart LR
 
 ### 视觉与交互
 
-- Side Panel 使用 X 式窄栏样式和底部 Tab 结构；收件箱直接展示筛选、总数和添加趋势图；
-- 文章列表使用 X Cell 与 1px 分隔线；
+- Side Panel 使用 X 式窄栏样式和底部 Tab 结构；统计入口独立展示筛选、摘要和添加趋势图；
+- 候选文章列表在 600 CSS px、@2x 下复刻 X Bookmarks Card 的尺寸、字体、布局、图标、图片裁剪和 1px 分隔线；`•••` 不显示但保留槽位；
+- 互动快照图标对辅助技术隐藏，只有扩展书签具有按钮语义，tooltip 与无障碍名称均为“从收件箱移除”；
 - 主要按钮使用 X 的黑色胶囊样式；
 - 链接使用 `#1D9BF0`，不使用渐变；
 - 420px 左右宽度下不出现横向滚动；

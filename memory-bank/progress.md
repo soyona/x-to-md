@@ -7,7 +7,7 @@
 - [ ] 在下一次 X 页面结构变更或功能迭代时，使用真实推文与 Article 人工复核采集、预览和复制链路。
 - [ ] 使用真实 X 推文与 Article 验证 v2 原生预览的像素级视觉一致性。
 - [ ] 在真实 Chrome Side Panel 中人工验收 Content Inbox 写入与素材保存；作者 Articles 页面 DOM 识别已完成实测。
-- [ ] 在真实 Chrome 中验收候选卡的“忽略候选”和“添加至素材库”操作，以及切换到错误原文时的阻止提示。
+- [ ] 在真实 Chrome 中以 600 CSS px、@2x 对照 X Bookmarks 基准验收候选 Card 的默认、红色移除 hover/focus 和移除后补位状态；同时验证窄宽流式收缩、真实互动快照和切换到错误原文时的阻止提示。
 - [ ] 在真实 Chrome 的 Article 帖子操作栏 hover/focus 原生 Bookmark，人工验收“添加至收件箱/从收件箱移除”双态书签的位置、尺寸、destructive hover、实时同步及再次添加；需包含扩展重载前已打开页面点击 Action 后的补注入场景。
 
 ## 已完成
@@ -37,7 +37,7 @@
 - [x] 将关注作者入口迁移到 X 原生 Follow 按钮 hover/focus，覆盖 Profile Summary、Follow 列表、Article 作者头部和 Profile 头部；不再要求选取作者名称，也不拦截原生 Follow 点击。
 - [x] 在作者 Articles 列表的每张卡片及 X Article 原文中支持从 Bookmark 位置添加至收件箱，并按 Article URL 去重写入候选元数据。
 - [x] 在扩展更新/启动时及用户点击 Action 后，仅以当前 content script 的明确就绪回复作为版本判据；旧脚本或缺失脚本均补注入已打包 content script，避免页面交互因保留旧版脚本而完全不可用。
-- [x] 完成候选卡忽略与已提取候选直接添加至素材库的状态闭环；保存后候选从当前列表移除。
+- [x] 将 Side Panel 候选 Card 重构为 X Bookmarks 视觉结构，持久化加入时可见摘要、认证与互动快照；删除候选 `•••`、忽略和卡内保存入口，并把两个移除入口统一为 `ignored` 墓碑状态。保存完整 Markdown 继续由原文上下文操作完成。
 - [x] 将 Side Panel 调整为上下文感知 Content Inbox：收件箱/关注作者/素材库、当前页面上下文、保存并复制 Markdown、候选忽略撤销与标签页同步。
 - [x] 原文加入收件箱后自动刷新 Side Panel，并支持按添加时间或原文发表时间从新到旧排序。
 - [x] 将“关注作者”页收敛为 X Follow UI，使用 X design token 和 Following/unfollow 状态，并移除其他作者管理操作及手动扫描链路。

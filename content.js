@@ -200,6 +200,52 @@ function isArticlesIndexPage() {
   return /^\/[^/]+\/articles\/?$/u.test(location.pathname);
 }
 
+function articleCandidateId(sourceUrl) {
+  return `article_${String(sourceUrl || "").split(/[?#]/u)[0].replace(/\/$/u, "").split("/").pop() || "unknown"}`;
+}
+
+function visibleCountOf(control) {
+  const count = textOf(control?.querySelector('[data-testid="app-text-transition-container"]')) || textOf(control);
+  const visibleCount = count.split("\n").map((value) => value.trim()).filter(Boolean).findLast((value) => /^\d[\d.,]*[KMB]?$/iu.test(value));
+  if (visibleCount) return visibleCount;
+  return (control?.getAttribute("aria-label") || "").match(/\b\d[\d.,]*[KMB]?\b/iu)?.[0] || "";
+}
+
+function iconSnapshotOf(control) {
+  const svg = control?.querySelector("svg");
+  const paths = [...svg?.querySelectorAll("path") || []].map((path) => path.getAttribute("d")).filter(Boolean);
+  return paths.length ? { viewBox: svg.getAttribute("viewBox") || "0 0 24 24", paths } : null;
+}
+
+function actionSnapshotOf(root, selector, { includeCount = true } = {}) {
+  const control = root?.querySelector(selector);
+  const icon = iconSnapshotOf(control);
+  if (!control && !icon) return null;
+  return { count: includeCount ? visibleCountOf(control) : "", ...(icon || {}) };
+}
+
+function articlePreviewMetadata(root, cardText, title) {
+  const previewExcerpt = [...cardText?.querySelectorAll('[dir="auto"]') || []]
+    .map(textOf)
+    .filter((value) => value && value !== title)
+    .join("\n")
+    .trim();
+  return {
+    previewExcerpt,
+    authorVerified: Boolean(root?.querySelector('[data-testid="icon-verified"], [aria-label="Verified account"]')),
+    previewCapturedAt: new Date().toISOString(),
+    utilityIconSnapshot: actionSnapshotOf(root, 'button[aria-label*="Grok" i], [data-testid*="grok" i]', { includeCount: false }),
+    engagementSnapshot: {
+      reply: actionSnapshotOf(root, 'button[data-testid="reply"]'),
+      repost: actionSnapshotOf(root, 'button[data-testid="retweet"], button[data-testid="unretweet"]'),
+      like: actionSnapshotOf(root, 'button[data-testid="like"], button[data-testid="unlike"]'),
+      views: actionSnapshotOf(root, 'a[href*="/analytics"], a[aria-label*="analytics" i]'),
+      bookmark: actionSnapshotOf(root, 'button[data-testid="bookmark"], button[data-testid="removeBookmark"]', { includeCount: false }),
+      share: actionSnapshotOf(root, 'button[data-testid="share"]', { includeCount: false }),
+    },
+  };
+}
+
 function articleCandidateFromPage(author) {
   if (!isArticleSourcePage()) return null;
   const root = document.querySelector('[data-testid="twitterArticleReadView"], [data-testid="article"], [data-testid="twitterArticleRichTextView"], [data-testid="longformRichTextComponent"], [data-testid="articleBody"]') || findRoot();
@@ -209,7 +255,7 @@ function articleCandidateFromPage(author) {
   const avatar = root.querySelector('[data-testid="Tweet-User-Avatar"] img, [data-testid="UserAvatar-Container"] img');
   const cover = root.querySelector('[data-testid="article-cover-image"] img') || [...root.querySelectorAll("img")].find(isMediaImage);
   return {
-    id: `article_${sourceUrl.split("/").pop()}`,
+    id: articleCandidateId(sourceUrl),
     sourceUrl,
     title,
     authorHandle: author?.handle || "",
@@ -218,6 +264,7 @@ function articleCandidateFromPage(author) {
     coverImageUrl: cover ? originalMediaUrl(cover.currentSrc || cover.src) : "",
     publishedAt: time?.getAttribute("datetime") || null,
     status: "new",
+    ...articlePreviewMetadata(root, root.querySelector('[data-testid="article-cover-image"]')?.nextElementSibling, title),
   };
 }
 
@@ -261,6 +308,7 @@ function articleCandidateFromListRoot(root) {
     coverImageUrl: coverImage ? originalMediaUrl(coverImage.currentSrc || coverImage.src) : "",
     publishedAt: root.querySelector("time")?.getAttribute("datetime") || null,
     status: "new",
+    ...articlePreviewMetadata(root, cardText, title),
   };
 }
 
@@ -321,9 +369,8 @@ function bookmarkButtonFromTarget(target) {
 }
 
 function articleCandidateFromBookmarkButton(bookmarkButton) {
-  if (isArticleSourcePage()) return articleCandidateFromPage();
   const root = bookmarkButton.closest('[data-testid="cellInnerDiv"], article') || articleCardRootFromTarget(bookmarkButton);
-  return articleCandidateFromListRoot(root);
+  return articleCandidateFromListRoot(root) || (isArticleSourcePage() ? articleCandidateFromPage() : null);
 }
 
 function isActiveInboxCandidate(candidate) {
@@ -352,8 +399,9 @@ async function addInboxCandidate(candidate) {
 async function removeInboxCandidate(sourceUrl) {
   const stored = await chrome.storage.local.get(CONTENT_INBOX_STORAGE_KEY);
   const inbox = stored[CONTENT_INBOX_STORAGE_KEY] || {};
-  const candidates = (inbox.candidates || [])
-    .filter((candidate) => !matchesInboxCandidate(candidate, sourceUrl) || !isActiveInboxCandidate(candidate));
+  const candidates = inbox.candidates || [];
+  const candidate = candidates.find((item) => matchesInboxCandidate(item, sourceUrl) && isActiveInboxCandidate(item));
+  if (candidate) candidate.status = "ignored";
   await chrome.storage.local.set({ [CONTENT_INBOX_STORAGE_KEY]: { ...inbox, candidates } });
 }
 
