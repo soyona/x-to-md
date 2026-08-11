@@ -30,10 +30,6 @@ button, input, textarea { font: inherit; }
 button { cursor: pointer; }
 button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--x-blue); outline-offset: 2px; }
 .inbox { min-height: 100vh; display: flex; flex-direction: column; }
-.topbar { position: sticky; top: 0; z-index: 2; min-height: 53px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid var(--x-border); background: rgba(255,255,255,.96); backdrop-filter: blur(8px); }
-.topbar h1 { flex: 1; margin: 0; font-size: 20px; line-height: 24px; font-weight: 700; }
-.icon-button { width: 36px; height: 36px; padding: 0; border: 0; border-radius: 9999px; background: transparent; color: var(--x-primary); font-size: 24px; line-height: 36px; }
-.icon-button:hover { background: rgba(15,20,25,.08); }
 .view { flex: 1; min-width: 0; padding-bottom: 60px; }
 .status { min-height: 0; padding: 0 16px; color: var(--x-secondary); font-size: 13px; line-height: 18px; }
 .status:not(:empty) { padding-top: 8px; }
@@ -44,6 +40,23 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .current-context span, .current-context small { overflow: hidden; color: var(--x-secondary); font-size: 12px; white-space: nowrap; text-overflow: ellipsis; }
 .current-context small { grid-column: 1 / -1; }
 .current-context button:disabled { opacity: .55; cursor: default; }
+.candidate-filters { padding: 10px 16px 8px; border-bottom: 1px solid var(--x-border); background: #fff; }
+.candidate-search { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px; border: 1px solid var(--twitter-color-border); border-radius: var(--twitter-radius-pill); color: var(--x-secondary); background: #fff; }
+.candidate-search:focus-within { border-color: var(--x-blue); box-shadow: 0 0 0 1px var(--x-blue); }
+.candidate-search input { min-width: 0; flex: 1; height: 40px; padding: 0; border: 0; outline: 0; color: var(--x-primary); background: transparent; }
+.candidate-search input::placeholder { color: var(--x-secondary); }
+.candidate-date-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
+.candidate-date-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.candidate-date-tabs button { min-height: 32px; padding: 0 12px; border: 0; border-radius: var(--twitter-radius-pill); background: transparent; color: var(--x-secondary); font-size: 13px; font-weight: 700; }
+.candidate-date-tabs button:hover { background: var(--x-hover); }
+.candidate-date-tabs button.is-active { background: rgba(29,155,240,.1); color: var(--x-blue); }
+.candidate-chart { padding: 12px 16px 4px; border-bottom: 1px solid var(--x-border); background: #fff; }
+.candidate-chart-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; color: var(--x-secondary); font-size: 13px; }
+.candidate-chart-heading strong { color: var(--x-primary); font-size: 15px; }
+.candidate-chart svg { display: block; width: 100%; height: 128px; margin-top: 4px; overflow: visible; }
+.candidate-chart text { fill: var(--x-secondary); font-size: 10px; }
+.candidate-chart .chart-axis { stroke: var(--x-border); stroke-width: 1; }
+.candidate-chart .chart-line { fill: none; stroke: var(--x-blue); stroke-linecap: round; stroke-linejoin: round; stroke-width: 2.5; }
 .context { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 16px; color: var(--x-secondary); font-size: 13px; border-bottom: 1px solid var(--x-border); }
 .context button, .link-button { padding: 0; border: 0; background: transparent; color: var(--x-blue); font-size: 14px; }
 .cell { position: relative; padding: 12px 16px; border-bottom: 1px solid var(--x-border); }

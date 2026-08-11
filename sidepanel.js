@@ -1,14 +1,14 @@
 const STORAGE_KEY = "x-to-md-content-inbox";
 const view = document.querySelector("#view");
-const title = document.querySelector("#page-title");
 const status = document.querySelector("#status");
 const currentContext = document.querySelector("#current-context");
-const headerAction = document.querySelector("#header-action");
 
 const state = {
   page: "candidates",
   data: { subscriptions: [], candidates: [], assets: [] },
   candidateSort: "addedAt",
+  candidateQuery: "",
+  candidateDate: "today",
   assetFilter: "all",
   assetQuery: "",
   candidatePreviews: {},
@@ -112,6 +112,94 @@ function timestamp(value) {
   const time = Date.parse(value || "");
   return Number.isNaN(time) ? Number.NEGATIVE_INFINITY : time;
 }
+function localDateKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+function shiftDate(date, days) {
+  const shifted = new Date(date);
+  shifted.setDate(shifted.getDate() + days);
+  return shifted;
+}
+function dateRangeForFilter() {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (state.candidateDate === "today") return { start: today, end: shiftDate(today, 1), label: "今日" };
+  if (state.candidateDate === "yesterday") return { start: shiftDate(today, -1), end: today, label: "昨日" };
+  const mondayOffset = (today.getDay() + 6) % 7;
+  const thisMonday = shiftDate(today, -mondayOffset);
+  if (state.candidateDate === "thisWeek") return { start: thisMonday, end: shiftDate(thisMonday, 7), label: "本周" };
+  if (state.candidateDate === "lastWeek") return { start: shiftDate(thisMonday, -7), end: thisMonday, label: "上周" };
+  if (state.candidateDate === "thisMonth") {
+    const start = new Date(today.getFullYear(), today.getMonth(), 1);
+    return { start, end: new Date(today.getFullYear(), today.getMonth() + 1, 1), label: "本月" };
+  }
+  return { start: today, end: shiftDate(today, 1), label: "今日" };
+}
+function candidateInRange(candidate, range = dateRangeForFilter()) {
+  const time = timestamp(candidate.addedAt);
+  return time >= range.start.valueOf() && time < range.end.valueOf();
+}
+function candidateMatchesQuery(candidate) {
+  const query = state.candidateQuery.trim().toLowerCase();
+  if (!query) return true;
+  return [candidate.title, candidate.authorName, candidate.authorHandle, candidate.sourceUrl]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase()
+    .includes(query);
+}
+function filteredCandidates() {
+  return state.data.candidates
+    .filter((candidate) => candidate.status !== "ignored" && candidate.status !== "saved")
+    .filter(candidateMatchesQuery)
+    .filter((candidate) => candidateInRange(candidate));
+}
+function activeCandidates() {
+  return state.data.candidates.filter((candidate) => candidate.status !== "ignored" && candidate.status !== "saved");
+}
+function chartData() {
+  const range = dateRangeForFilter();
+  const days = Math.max(1, Math.ceil((range.end - range.start) / 86400000));
+  const counts = Array.from({ length: days }, () => 0);
+  activeCandidates().forEach((candidate) => {
+    const time = timestamp(candidate.addedAt);
+    if (time < range.start.valueOf() || time >= range.end.valueOf()) return;
+    const index = Math.floor((time - range.start.valueOf()) / 86400000);
+    if (index >= 0 && index < counts.length) counts[index] += 1;
+  });
+  return { range, counts };
+}
+function chartLabel(date) {
+  return `${date.getMonth() + 1}/${date.getDate()}`;
+}
+function renderCandidateChart() {
+  const { range, counts } = chartData();
+  const max = Math.max(1, ...counts);
+  const width = 360;
+  const height = 128;
+  const left = 30;
+  const right = 8;
+  const top = 10;
+  const bottom = 28;
+  const plotWidth = width - left - right;
+  const plotHeight = height - top - bottom;
+  const points = counts.map((count, index) => {
+    const x = counts.length === 1 ? left + plotWidth / 2 : left + (index / (counts.length - 1)) * plotWidth;
+    const y = top + plotHeight - (count / max) * plotHeight;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+  const labelIndexes = [...new Set([0, Math.floor((counts.length - 1) / 2), counts.length - 1])];
+  const labels = labelIndexes.map((index) => {
+    const date = new Date(range.start);
+    date.setDate(date.getDate() + index);
+    const x = counts.length === 1 ? left + plotWidth / 2 : left + (index / (counts.length - 1)) * plotWidth;
+    return `<text x="${x.toFixed(1)}" y="${height - 8}" text-anchor="middle">${escapeHtml(chartLabel(date))}</text>`;
+  }).join("");
+  return `<div class="candidate-chart" aria-label="${escapeHtml(range.label)}添加文章趋势"><div class="candidate-chart-heading"><strong>添加趋势</strong><span>${escapeHtml(range.label)} · ${counts.reduce((sum, count) => sum + count, 0)} 篇</span></div><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="按添加日期统计文章数量"><line class="chart-axis" x1="${left}" y1="${top}" x2="${left}" y2="${height - bottom}"/><line class="chart-axis" x1="${left}" y1="${height - bottom}" x2="${width - right}" y2="${height - bottom}"/><text class="chart-y-label" x="4" y="${top + 4}">${max}</text><text class="chart-y-label" x="14" y="${height - bottom + 4}">0</text><polyline class="chart-line" points="${points}"/>${labels}</svg></div>`;
+}
 function sortedCandidates(candidates) {
   return candidates
     .map((candidate, index) => ({ candidate, index }))
@@ -143,13 +231,18 @@ function candidateCell(candidate) {
   const cover = candidate.coverImageUrl ? `<img src="${escapeHtml(candidate.coverImageUrl)}" alt="" />` : `<span class="article-card-placeholder" aria-hidden="true"></span>`;
   const excerpt = preview.excerpt ? `<span class="article-card-excerpt">${escapeHtml(preview.excerpt)}</span>` : "";
   const engagement = (preview.engagement || []).map((item) => `<span class="article-engagement-item">${xIcon(item)}<span>${escapeHtml(item.count)}</span></span>`).join("");
-  const menu = state.candidateMenu === candidate.id ? `<div class="candidate-menu" role="menu"><button data-action="candidate-native-preview" data-id="${escapeHtml(candidate.id)}" type="button" role="menuitem">在 X 中原样预览</button>${candidate.status === "extracted" ? `<button data-action="candidate-save" data-id="${escapeHtml(candidate.id)}" type="button" role="menuitem">添加至素材库</button>` : ""}<button data-action="candidate-ignore" data-id="${escapeHtml(candidate.id)}" type="button" role="menuitem">忽略候选</button></div>` : "";
-  return `<article class="article-post" data-candidate="${escapeHtml(candidate.id)}"><span class="sr-only">${escapeHtml(statusLabel)}</span><div class="article-avatar" aria-hidden="true">${avatar}</div><div class="article-content"><div class="article-author"><strong>${escapeHtml(authorName)}</strong><span>${escapeHtml(candidate.authorHandle || "")}</span><span>· ${escapeHtml(formatDate(candidate.publishedAt))}</span><button class="article-more" data-action="candidate-menu" data-id="${escapeHtml(candidate.id)}" type="button" aria-label="候选操作" aria-expanded="${state.candidateMenu === candidate.id}">•••</button></div><a class="article-card" href="${escapeHtml(candidate.sourceUrl)}" target="_blank" rel="noreferrer"><span class="article-card-media">${cover}<span class="article-card-badge">𝕏 Article</span></span><span class="article-card-body"><strong>${escapeHtml(candidate.title)}</strong>${excerpt}</span></a><div class="article-engagement" aria-label="Article engagement">${engagement}</div>${menu}</div></article>`;
+  const menu = state.candidateMenu === candidate.id ? `<div class="candidate-menu" role="menu">${candidate.status === "extracted" ? `<button data-action="candidate-save" data-id="${escapeHtml(candidate.id)}" type="button" role="menuitem">添加至素材库</button>` : ""}<button data-action="candidate-ignore" data-id="${escapeHtml(candidate.id)}" type="button" role="menuitem">忽略候选</button></div>` : "";
+  return `<article class="article-post" data-candidate="${escapeHtml(candidate.id)}"><span class="sr-only">${escapeHtml(statusLabel)}</span><div class="article-avatar" aria-hidden="true">${avatar}</div><div class="article-content"><div class="article-author"><strong>${escapeHtml(authorName)}</strong><span>${escapeHtml(candidate.authorHandle || "")}</span><span>· ${escapeHtml(formatDate(candidate.publishedAt))}</span><button class="article-more" data-action="candidate-menu" data-id="${escapeHtml(candidate.id)}" type="button" aria-label="候选操作" aria-expanded="${state.candidateMenu === candidate.id}">•••</button></div><a class="article-card" data-action="candidate-open" data-id="${escapeHtml(candidate.id)}" href="${escapeHtml(candidate.sourceUrl)}" target="_blank" rel="noreferrer"><span class="article-card-media">${cover}<span class="article-card-badge">𝕏 Article</span></span><span class="article-card-body"><strong>${escapeHtml(candidate.title)}</strong>${excerpt}</span></a><div class="article-engagement" aria-label="Article engagement">${engagement}</div>${menu}</div></article>`;
 }
 function renderCandidates() {
-  const candidates = sortedCandidates(state.data.candidates.filter((candidate) => candidate.status !== "ignored" && candidate.status !== "saved"));
-  const context = state.data.candidates.length ? `<div class="candidate-context"><span>${candidates.length} Articles</span><div class="candidate-sort" role="group" aria-label="收件箱排序"><button class="${state.candidateSort === "addedAt" ? "is-active" : ""}" data-candidate-sort="addedAt" type="button">最近添加</button><button class="${state.candidateSort === "publishedAt" ? "is-active" : ""}" data-candidate-sort="publishedAt" type="button">最新发表</button></div></div>` : "";
-  view.innerHTML = `${context}${candidates.length ? candidates.map(candidateCell).join("") : `<p class="empty">还没有候选 Article。前往关注作者，打开作者的 Articles 页面并手动获取。</p>`}`;
+  const candidates = sortedCandidates(filteredCandidates());
+  const total = activeCandidates().length;
+  const hasCandidates = total > 0;
+  const filters = `<div class="candidate-filters"><label class="candidate-search"><span class="sr-only">搜索收件箱</span><span aria-hidden="true">⌕</span><input data-candidate-search type="search" placeholder="搜索收件箱" value="${escapeHtml(state.candidateQuery)}" aria-label="搜索收件箱"></label><div class="candidate-date-row"><div class="candidate-date-tabs" role="group" aria-label="收件箱日期筛选"><button class="${state.candidateDate === "today" ? "is-active" : ""}" data-candidate-date="today" type="button">今日</button><button class="${state.candidateDate === "yesterday" ? "is-active" : ""}" data-candidate-date="yesterday" type="button">昨日</button><button class="${state.candidateDate === "thisWeek" ? "is-active" : ""}" data-candidate-date="thisWeek" type="button">本周</button><button class="${state.candidateDate === "lastWeek" ? "is-active" : ""}" data-candidate-date="lastWeek" type="button">上周</button><button class="${state.candidateDate === "thisMonth" ? "is-active" : ""}" data-candidate-date="thisMonth" type="button">本月</button></div></div></div>`;
+  const range = dateRangeForFilter();
+  const context = `<div class="candidate-context"><span>收件箱总数 ${total} · ${range.label} ${candidates.length} 篇</span><div class="candidate-sort" role="group" aria-label="收件箱排序"><button class="${state.candidateSort === "addedAt" ? "is-active" : ""}" data-candidate-sort="addedAt" type="button">最近添加</button><button class="${state.candidateSort === "publishedAt" ? "is-active" : ""}" data-candidate-sort="publishedAt" type="button">最新发表</button></div></div>`;
+  const emptyMessage = hasCandidates ? "当前筛选条件下没有匹配的 Article。" : "还没有候选 Article。前往关注作者，打开作者的 Articles 页面并手动获取。";
+  view.innerHTML = `${filters}${renderCandidateChart()}${context}${candidates.length ? candidates.map(candidateCell).join("") : `<p class="empty">${emptyMessage}</p>`}`;
 }
 function subscriptionCell(subscription) {
   const name = subscription.displayName || subscription.handle;
@@ -172,10 +265,6 @@ function renderAssets() {
   view.innerHTML = `<div class="context"><span>只保存你主动确认的 Markdown</span>${state.currentContext?.pageKind === "article" ? `<button class="link-button" data-action="save-current" type="button">保存并复制 Markdown</button>` : ""}</div><input class="search" data-asset-search type="search" placeholder="搜索素材" value="${escapeHtml(state.assetQuery)}" aria-label="搜索素材"><div class="tabs"><button class="filter-tab ${state.assetFilter === "all" ? "is-active" : ""}" data-filter="all" type="button">全部</button><button class="filter-tab ${state.assetFilter === "unused" ? "is-active" : ""}" data-filter="unused" type="button">未使用</button><button class="filter-tab ${state.assetFilter === "used" ? "is-active" : ""}" data-filter="used" type="button">已用于创作</button></div>${assets.length ? assets.map((asset) => `<article class="cell"><a class="cell-title" href="${escapeHtml(asset.sourceUrl)}" target="_blank" rel="noreferrer">${escapeHtml(asset.title)}</a><div class="cell-meta">${escapeHtml(asset.authorHandle || "")} · 保存于 ${escapeHtml(formatDate(asset.createdAt))}${asset.tags?.length ? ` · ${escapeHtml(asset.tags.join("、"))}` : ""}</div><p class="cell-meta">${escapeHtml((asset.markdown || "").slice(0, 180))}${asset.markdown?.length > 180 ? "…" : ""}</p><div class="cell-actions"><button class="link-button" data-action="asset-copy" data-id="${escapeHtml(asset.id)}" type="button">复制 Markdown</button><button class="article-more" data-action="asset-menu" data-id="${escapeHtml(asset.id)}" type="button" aria-label="素材操作">•••</button>${state.candidateMenu === asset.id ? `<div class="candidate-menu asset-menu" role="menu"><button data-action="asset-open" data-id="${escapeHtml(asset.id)}" type="button" role="menuitem">打开原文</button><button data-action="asset-edit" data-id="${escapeHtml(asset.id)}" type="button" role="menuitem">编辑标签/备注</button><button data-action="asset-toggle-used" data-id="${escapeHtml(asset.id)}" type="button" role="menuitem">${asset.usageStatus === "used" ? "标记未使用" : "标记已用于创作"}</button><button data-action="asset-delete" data-id="${escapeHtml(asset.id)}" type="button" role="menuitem">删除素材</button></div>` : ""}</div></article>`).join("") : `<p class="empty">还没有已保存的素材。完成“保存并复制 Markdown”后，素材会出现在这里。</p>`}`;
 }
 function render() {
-  title.textContent = ({ candidates: "收件箱", subscriptions: "关注作者", assets: "素材库" }[state.page]);
-  headerAction.hidden = state.page === "subscriptions";
-  headerAction.textContent = "⌕";
-  headerAction.setAttribute("aria-label", state.page === "candidates" ? "Filter candidates" : "Search assets");
   document.querySelectorAll("[data-view]").forEach((tab) => tab.classList.toggle("is-active", tab.dataset.view === state.page));
   if (state.page === "candidates") renderCandidates();
   else if (state.page === "subscriptions") renderSubscriptions();
@@ -202,13 +291,6 @@ async function saveCurrentExtraction(expectedCandidate = null) {
   await saveData(); setStatus("已保存并复制 Markdown"); render();
   await refreshContext({ resetPage: false });
 }
-async function previewCandidateOnX(candidate) {
-  await chrome.runtime.sendMessage({ type: "open-native-article-preview", sourceUrl: candidate.sourceUrl });
-  candidate.status = candidate.status === "new" ? "viewed" : candidate.status;
-  await saveData();
-  setStatus("已在新的 X 标签页中打开原样预览");
-  render();
-}
 async function handleAction(action, target) {
   const idValue = target.dataset.id;
   if (action === "subscription-unfollow") {
@@ -220,7 +302,6 @@ async function handleAction(action, target) {
   }
   const candidate = state.data.candidates.find((item) => item.id === idValue);
   if (candidate && action === "candidate-menu") { state.candidateMenu = state.candidateMenu === candidate.id ? null : candidate.id; return render(); }
-  if (candidate && action === "candidate-native-preview") return previewCandidateOnX(candidate);
   if (candidate && action === "candidate-open") { candidate.status = candidate.status === "new" ? "viewed" : candidate.status; await saveData(); window.open(candidate.sourceUrl, "_blank"); return render(); }
   if (candidate && action === "candidate-ignore") {
     candidate.status = "ignored";
@@ -253,6 +334,8 @@ document.addEventListener("click", async (event) => {
   if (viewButton) { state.page = viewButton.dataset.view; render(); return; }
   const candidateSort = event.target.closest("[data-candidate-sort]");
   if (candidateSort) { state.candidateSort = candidateSort.dataset.candidateSort; renderCandidates(); return; }
+  const candidateDate = event.target.closest("[data-candidate-date]");
+  if (candidateDate) { state.candidateDate = candidateDate.dataset.candidateDate; renderCandidates(); return; }
   const filter = event.target.closest("[data-filter]");
   if (filter) { state.assetFilter = filter.dataset.filter; render(); return; }
   const action = event.target.closest("[data-action]");
@@ -260,14 +343,14 @@ document.addEventListener("click", async (event) => {
     if (state.candidateMenu && !event.target.closest(".candidate-menu")) { state.candidateMenu = null; render(); }
     return;
   }
+  if (action.dataset.action === "candidate-open") event.preventDefault();
   try {
     await handleAction(action.dataset.action, action);
   } catch (error) { setStatus(error.message || "操作失败", "error"); }
 });
-view.addEventListener("input", (event) => { if (event.target.matches("[data-asset-search]")) { state.assetQuery = event.target.value; renderAssets(); } });
-headerAction.addEventListener("click", () => {
-  if (state.page === "assets") view.querySelector("[data-asset-search]")?.focus();
-  else setStatus("收件箱当前显示未忽略的 Article");
+view.addEventListener("input", (event) => {
+  if (event.target.matches("[data-asset-search]")) { state.assetQuery = event.target.value; renderAssets(); }
+  if (event.target.matches("[data-candidate-search]")) { state.candidateQuery = event.target.value; renderCandidates(); view.querySelector("[data-candidate-search]")?.focus(); }
 });
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.type !== "capture-completed" || !message.sourceUrl) return;

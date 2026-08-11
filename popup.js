@@ -27,13 +27,8 @@ button.addEventListener("click", async () => {
     if (capture?.error) throw new Error(capture.error);
     if (!capture?.content) throw new Error("No content found. Please wait for the page to finish loading.");
     await copyMarkdown(capture);
-    try {
-      const preview = await chrome.tabs.sendMessage(tab.id, { type: "open-native-preview" });
-      if (preview?.error) throw new Error(preview.error);
-      window.close();
-    } catch {
-      setStatus("Markdown copied, but the native preview could not be opened.", "error");
-    }
+    setStatus("Markdown copied.");
+    window.close();
   } catch (error) {
     setStatus(error.message || "Failed to read the page. Please refresh X and try again.", "error");
   } finally {

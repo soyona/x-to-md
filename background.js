@@ -53,26 +53,6 @@ chrome.action.onClicked.addListener((tab) => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender) => {
-  if (message?.type === "open-native-article-preview") {
-    const sourceUrl = message.sourceUrl;
-    if (!/^https:\/\/(?:www\.)?(?:x|twitter)\.com\//u.test(sourceUrl || "")) return;
-    const requestNativePreview = (tabId, attempt = 0) => {
-      chrome.tabs.sendMessage(tabId, { type: "open-native-preview" }).catch(() => {
-        if (attempt < 4) setTimeout(() => requestNativePreview(tabId, attempt + 1), 250);
-      });
-    };
-    chrome.tabs.create({ url: sourceUrl }, (tab) => {
-      if (!tab?.id) return;
-      const previewWhenReady = (tabId, changeInfo) => {
-        if (tabId !== tab.id || changeInfo.status !== "complete") return;
-        chrome.tabs.onUpdated.removeListener(previewWhenReady);
-        requestNativePreview(tab.id);
-      };
-      if (tab.status === "complete") requestNativePreview(tab.id);
-      else chrome.tabs.onUpdated.addListener(previewWhenReady);
-    });
-    return;
-  }
   if (message?.type !== "capture-completed") return;
   chrome.runtime.sendMessage({ type: "capture-completed", sourceUrl: message.sourceUrl }).catch(() => {});
 });

@@ -47,3 +47,5 @@
 - [x] 将收件箱书签按钮移至原生 Bookmark 左侧相邻 8px 处，左侧空间不足时回退至右侧，避免遮挡 X 原生收藏操作。
 - [x] Profile Summary 等 X 原生 Follow/Following 按钮均可触发关注作者浮层；浮层按扩展列表显示 `Follow` 或 `Following`/`unfollow`，并通过本地存储与 Side Panel 实时同步增删。
 - [x] 将 Article 收件箱书签补齐为双向闭环：添加、已加入 destructive hover 移除、再次添加；复用 `ignored`/`saved` 记录且不删除素材库，并通过本地存储与 Side Panel 实时同步。
+- [x] 收件箱默认显示今日，支持昨日、日历日期和 X 风格关键词搜索；候选卡直接打开原文并移除冗余的 X 原样预览链路。
+- [x] 收件箱日期筛选统一改为 `addedAt`，补充本周、上周、本月并增加总数与按添加日期聚合的 X 风格折线图。
