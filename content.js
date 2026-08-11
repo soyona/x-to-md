@@ -1,3 +1,11 @@
+(function initializeXToMdContentScript() {
+document.dispatchEvent(new CustomEvent("x-to-md:dispose-content-script"));
+try {
+  globalThis.__xToMdContentScript?.dispose?.();
+} catch {
+  // An extension reload can invalidate the previous instance's chrome.runtime.
+}
+
 function textOf(element) {
   return (element?.innerText || element?.textContent || "")
     .replace(/\u00a0/gu, " ")
@@ -92,7 +100,57 @@ let bookmarkCandidateState = null;
 let bookmarkCandidateHideTimer = null;
 let followSubscriptionState = null;
 let followSubscriptionHideTimer = null;
+let articleMoreMenuState = null;
+let articleMoreMenuPending = null;
+let articleMoreMenuRetryTimer = null;
+let articleMoreTriggerState = null;
+let articleMoreMenuObserver = null;
+const runtimeMessageListeners = [];
 const CONTENT_INBOX_STORAGE_KEY = "x-to-md-content-inbox";
+const CONTENT_SCRIPT_REVISION = "article-more-menu-v9";
+const contentScriptAbortController = new AbortController();
+const contentScriptEventOptions = { signal: contentScriptAbortController.signal };
+const articleMenuDiagnostics = { revision: CONTENT_SCRIPT_REVISION, stage: "initialized", history: [] };
+let contentScriptDisposed = false;
+
+function recordArticleMenuDiagnostic(stage, detail = {}) {
+  articleMenuDiagnostics.stage = stage;
+  articleMenuDiagnostics.history.push({ stage, detail, at: new Date().toISOString() });
+  if (articleMenuDiagnostics.history.length > 20) articleMenuDiagnostics.history.shift();
+}
+
+function reportArticleMenuError(error) {
+  recordArticleMenuDiagnostic("error", { message: error?.message || String(error) });
+  console.error("[x-to-md] Could not inject Article menu.", error);
+  removeArticleMoreMenu();
+}
+
+function disposeContentScript() {
+  if (contentScriptDisposed) return;
+  contentScriptDisposed = true;
+  contentScriptAbortController.abort();
+  runtimeMessageListeners.forEach((listener) => {
+    try {
+      chrome.runtime.onMessage.removeListener(listener);
+    } catch {
+      // The old extension context may already be invalidated during reload.
+    }
+  });
+  articleMoreMenuObserver?.disconnect();
+  articleMoreMenuObserver = null;
+  if (articleMoreMenuRetryTimer) window.clearTimeout(articleMoreMenuRetryTimer);
+  articleMoreMenuRetryTimer = null;
+  removeBookmarkCandidateToolbar();
+  removeFollowSubscriptionToolbar();
+  removeArticleMoreMenu();
+  removeImportPanel();
+  restoreCandidateOverlay();
+}
+
+function addRuntimeMessageListener(listener) {
+  chrome.runtime.onMessage.addListener(listener);
+  runtimeMessageListeners.push(listener);
+}
 
 function profileHandleFromHref(href) {
   try {
@@ -193,7 +251,7 @@ function authorFromFollowButton(button) {
 }
 
 function isArticleSourcePage() {
-  return /\/(?:i\/)?article\/\d+/u.test(location.pathname);
+  return /\/(?:status|(?:i\/)?article)\/\d+/u.test(location.pathname);
 }
 
 function isArticlesIndexPage() {
@@ -418,16 +476,19 @@ function scheduleRemoveBookmarkCandidateToolbar() {
   bookmarkCandidateHideTimer = window.setTimeout(removeBookmarkCandidateToolbar, 180);
 }
 
+function isWithinAnchorOrToolbar(target, anchor, toolbarSelector) {
+  return Boolean(target?.closest?.(toolbarSelector) || (target instanceof Node && anchor?.contains(target)));
+}
+
 function positionBookmarkCandidateToolbar(toolbar, bookmarkButton) {
   if (!toolbar.isConnected || !bookmarkButton.isConnected) return;
   const rect = bookmarkButton.getBoundingClientRect();
+  const toolbarRect = toolbar.getBoundingClientRect();
   const gap = 8;
-  const left = rect.left - rect.width - gap;
-  const fallbackLeft = Math.min(window.innerWidth - rect.width - gap, rect.right + gap);
+  const left = rect.left - toolbarRect.width - gap;
+  const fallbackLeft = Math.min(window.innerWidth - toolbarRect.width - gap, rect.right + gap);
   toolbar.style.left = `${left >= gap ? left : fallbackLeft}px`;
-  toolbar.style.top = `${rect.top}px`;
-  toolbar.style.width = `${rect.width}px`;
-  toolbar.style.height = `${rect.height}px`;
+  toolbar.style.top = `${rect.top + (rect.height - toolbarRect.height) / 2}px`;
 }
 
 async function showBookmarkCandidateToolbar(bookmarkButton, candidate = articleCandidateFromBookmarkButton(bookmarkButton)) {
@@ -442,8 +503,10 @@ async function showBookmarkCandidateToolbar(bookmarkButton, candidate = articleC
   const style = document.createElement("style");
   style.id = "x-to-md-bookmark-candidate-style";
   style.textContent = `
-    #x-to-md-bookmark-candidate-toolbar { position: fixed !important; z-index: 2147483647 !important; margin: 0 !important; padding: 0 !important; }
-    #x-to-md-bookmark-candidate-toolbar button { display: flex !important; align-items: center !important; justify-content: center !important; box-sizing: border-box !important; width: 100% !important; height: 100% !important; min-width: 0 !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; border: 0 !important; border-radius: 9999px !important; background: #1D9BF0 !important; color: #FFFFFF !important; cursor: pointer !important; }
+    #x-to-md-bookmark-candidate-toolbar { position: fixed !important; z-index: 2147483647 !important; display: flex !important; align-items: center !important; gap: 4px !important; margin: 0 !important; padding: 0 !important; }
+    #x-to-md-bookmark-candidate-toolbar button { display: flex !important; align-items: center !important; justify-content: center !important; box-sizing: border-box !important; width: 32px !important; height: 32px !important; min-width: 32px !important; min-height: 32px !important; margin: 0 !important; padding: 0 !important; border: 0 !important; border-radius: 9999px !important; background: #1D9BF0 !important; color: #FFFFFF !important; cursor: pointer !important; }
+    #x-to-md-bookmark-candidate-toolbar button[data-extract-current] { width: auto !important; padding: 0 14px !important; background: rgb(15, 20, 25) !important; font: 700 14px/20px TwitterChirp, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important; white-space: nowrap !important; }
+    #x-to-md-bookmark-candidate-toolbar button[data-extract-current]:hover, #x-to-md-bookmark-candidate-toolbar button[data-extract-current]:focus-visible { background: rgb(39, 44, 48) !important; }
     #x-to-md-bookmark-candidate-toolbar button.is-in-inbox { border: 1px solid #1D9BF0 !important; background: rgb(255, 255, 255) !important; color: #1D9BF0 !important; }
     #x-to-md-bookmark-candidate-toolbar button.is-in-inbox:hover,
     #x-to-md-bookmark-candidate-toolbar button.is-in-inbox:focus-visible { border-color: rgb(244, 33, 46) !important; background: rgba(244, 33, 46, .1) !important; color: rgb(244, 33, 46) !important; }
@@ -456,7 +519,10 @@ async function showBookmarkCandidateToolbar(bookmarkButton, candidate = articleC
   const bookmarkPath = isInInbox
     ? "M4 4.5C4 3.12 5.119 2 6.5 2h11C18.881 2 20 3.12 20 4.5v18.44l-8-5.71-8 5.71V4.5z"
     : "M4 4.5C4 3.12 5.119 2 6.5 2h11C18.881 2 20 3.12 20 4.5v18.44l-8-5.71-8 5.71V4.5zM6.5 4c-.276 0-.5.22-.5.5v14.56l6-4.29 6 4.29V4.5c0-.28-.224-.5-.5-.5h-11z";
-  toolbar.innerHTML = `<button class="${isInInbox ? "is-in-inbox" : ""}" type="button" data-toggle-inbox-candidate aria-label="${actionLabel}" title="${actionLabel}" aria-pressed="${isInInbox}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${bookmarkPath}"></path></svg></button>`;
+  const extractButton = isArticleSourcePage()
+    ? '<button type="button" data-extract-current aria-label="Extract and copy" title="Extract and copy">Extract and copy</button>'
+    : "";
+  toolbar.innerHTML = `${extractButton}<button class="${isInInbox ? "is-in-inbox" : ""}" type="button" data-toggle-inbox-candidate aria-label="${actionLabel}" title="${actionLabel}" aria-pressed="${isInInbox}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${bookmarkPath}"></path></svg></button>`;
   document.head.append(style);
   document.body.append(toolbar);
   bookmarkCandidateState = { bookmarkButton, candidate, toolbar, isInInbox };
@@ -473,6 +539,10 @@ async function showBookmarkCandidateToolbar(bookmarkButton, candidate = articleC
     if (selectedState.isInInbox) await removeInboxCandidate(selectedState.candidate.sourceUrl);
     else await addInboxCandidate(selectedState.candidate);
     removeBookmarkCandidateToolbar();
+  });
+  toolbar.querySelector("[data-extract-current]")?.addEventListener("click", () => {
+    removeBookmarkCandidateToolbar();
+    createImportPanel();
   });
 }
 
@@ -586,38 +656,213 @@ function handleFollowButtonEntry(target) {
   if (author) showFollowSubscriptionToolbar(followButton, author).catch(removeFollowSubscriptionToolbar);
 }
 
+function removeArticleMoreMenu() {
+  articleMoreMenuObserver?.disconnect();
+  articleMoreMenuObserver = null;
+  document.querySelector("#x-to-md-article-menu-group")?.remove();
+  articleMoreMenuState = null;
+}
+
+function reconcileArticleMoreMenu(menu, group) {
+  articleMoreMenuObserver?.disconnect();
+  articleMoreMenuObserver = new MutationObserver(() => {
+    if (!menu.isConnected) {
+      articleMoreMenuObserver?.disconnect();
+      articleMoreMenuObserver = null;
+      articleMoreMenuState = null;
+      return;
+    }
+    if (!group.isConnected) {
+      recordArticleMenuDiagnostic("group-removed-by-page");
+      menu.prepend(group);
+      recordArticleMenuDiagnostic("group-restored");
+    }
+  });
+  articleMoreMenuObserver.observe(menu, { childList: true });
+}
+
+function visibleNativeMenu() {
+  return [...document.querySelectorAll('[data-testid="Dropdown"]')]
+    .find((dropdown) => dropdown.getClientRects().length
+      && [...dropdown.querySelectorAll(':scope > [role="menuitem"]')]
+        .some((item) => /^(?:Embed Article|Report Article)$/u.test(textOf(item)))) || null;
+}
+
+function nativeMenuIcon(menu, label) {
+  return [...menu.querySelectorAll('[role="menuitem"]')]
+    .find((item) => textOf(item).includes(label))
+    ?.querySelector("svg")?.outerHTML || "";
+}
+
+function articleMenuAuthor(menu) {
+  const followItemText = [...menu.querySelectorAll(':scope > [role="menuitem"]')]
+    .map(textOf)
+    .find((label) => /^(?:Follow|Unfollow)\s+@[a-z0-9_]{1,15}$/iu.test(label)) || "";
+  const menuHandle = followItemText.match(/@[a-z0-9_]{1,15}/iu)?.[0] || "";
+  const context = menuHandle ? null : currentPageContext();
+  const handle = menuHandle || context?.authorHandle || "";
+  if (!handle) return null;
+  return {
+    handle,
+    displayName: context?.authorName || handle,
+    profileUrl: `https://x.com/${handle.slice(1)}`,
+  };
+}
+
+function articleMoreButtonFromTarget(target) {
+  const button = target?.closest?.('button[data-testid="caret"][aria-haspopup="menu"]');
+  if (!button) return null;
+  let candidate = null;
+  try {
+    const root = button.closest('[data-testid="cellInnerDiv"], article') || articleCardRootFromTarget(button);
+    candidate = articleCandidateFromListRoot(root) || (isArticleSourcePage() ? articleCandidateFromPage() : null);
+  } catch (error) {
+    recordArticleMenuDiagnostic("candidate-read-failed", { message: error?.message || String(error) });
+    // Opening the native menu must not depend on optional candidate metadata.
+  }
+  return { button, candidate };
+}
+
+function scheduleArticleMoreMenu() {
+  if (articleMoreMenuRetryTimer) window.clearTimeout(articleMoreMenuRetryTimer);
+  articleMoreMenuRetryTimer = null;
+  recordArticleMenuDiagnostic("waiting-for-dropdown");
+  let attempts = 0;
+  const injectWhenReady = () => {
+    if (visibleNativeMenu()) {
+      articleMoreMenuRetryTimer = null;
+      recordArticleMenuDiagnostic("dropdown-found", { attempts });
+      showArticleMoreMenu().catch(reportArticleMenuError);
+      return;
+    }
+    attempts += 1;
+    if (attempts < 30) articleMoreMenuRetryTimer = window.setTimeout(injectWhenReady, 50);
+    else recordArticleMenuDiagnostic("dropdown-timeout", { attempts });
+  };
+  window.requestAnimationFrame(injectWhenReady);
+}
+
+async function showArticleMoreMenu() {
+  const menu = visibleNativeMenu();
+  if (!menu || (articleMoreMenuState?.menu === menu && articleMoreMenuState.group.isConnected)) return;
+  if (articleMoreMenuPending === menu) return;
+  articleMoreMenuPending = menu;
+  removeArticleMoreMenu();
+  const author = articleMenuAuthor(menu);
+  const sourceCandidate = articleMoreTriggerState?.candidate || articleCandidateFromPage(author);
+  const candidate = sourceCandidate && author ? {
+    ...sourceCandidate,
+    authorHandle: sourceCandidate.authorHandle || author.handle,
+    authorName: sourceCandidate.authorName || author.displayName,
+  } : sourceCandidate;
+  if (!author || !candidate) {
+    recordArticleMenuDiagnostic("missing-menu-context", { hasAuthor: Boolean(author), hasCandidate: Boolean(candidate) });
+    articleMoreMenuPending = null;
+    return;
+  }
+  let stored;
+  try {
+    stored = await chrome.storage.local.get(CONTENT_INBOX_STORAGE_KEY);
+  } finally {
+    articleMoreMenuPending = null;
+  }
+  recordArticleMenuDiagnostic("storage-read");
+  if (!menu.isConnected || menu !== visibleNativeMenu()) {
+    recordArticleMenuDiagnostic("dropdown-replaced-before-insert");
+    return;
+  }
+  const inbox = stored[CONTENT_INBOX_STORAGE_KEY] || {};
+  const isFollowing = (inbox.subscriptions || []).some((item) => item.handle?.toLowerCase() === author.handle.toLowerCase());
+  const isInInbox = (inbox.candidates || []).some((item) => matchesInboxCandidate(item, candidate.sourceUrl) && isActiveInboxCandidate(item));
+  const group = document.createElement("div");
+  group.id = "x-to-md-article-menu-group";
+  group.setAttribute("aria-label", "x-to-md Article 操作");
+  group.style.cssText = "border-bottom: 1px solid rgb(239, 243, 244);";
+  const actionRow = (label, icon, action) => {
+    const template = [...menu.querySelectorAll(':scope > [role="menuitem"]')]
+      .find((item) => textOf(item) === "Embed Article") || menu.querySelector(':scope > [role="menuitem"]');
+    const row = template.cloneNode(true);
+    row.dataset.xToMdAction = action;
+    row.querySelector("svg")?.replaceWith(document.createRange().createContextualFragment(icon).firstElementChild || document.createElement("span"));
+    const labelSlot = [...row.querySelectorAll("span, div")]
+      .filter((element) => textOf(element) === "Embed Article")
+      .at(-1);
+    if (labelSlot) labelSlot.textContent = label;
+    else row.append(document.createTextNode(label));
+    const runAction = async () => {
+      if (action === "follow") {
+        if (isFollowing) await removeAuthorSubscription(author.handle);
+        else await saveAuthorSubscription(author);
+      } else if (action === "extract") {
+        createImportPanel();
+      } else if (isInInbox) {
+        await removeInboxCandidate(candidate.sourceUrl);
+      } else {
+        await addInboxCandidate(candidate);
+      }
+      removeArticleMoreMenu();
+    };
+    row.addEventListener("click", () => runAction().catch(removeArticleMoreMenu));
+    row.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); runAction().catch(removeArticleMoreMenu); }
+    });
+    return row;
+  };
+  group.append(
+    actionRow(isFollowing ? "取消关注作者" : "关注作者", nativeMenuIcon(menu, "Follow") || nativeMenuIcon(menu, "Mute"), "follow"),
+    actionRow("Extract and copy", nativeMenuIcon(menu, "Embed Article"), "extract"),
+    actionRow(isInInbox ? "从收件箱移除" : "添加至收件箱", document.querySelector('button[data-testid="bookmark"], button[data-testid="removeBookmark"]')?.querySelector("svg")?.outerHTML || "", "inbox"),
+  );
+  menu.prepend(group);
+  articleMoreMenuState = { menu, group };
+  recordArticleMenuDiagnostic("group-inserted");
+  reconcileArticleMoreMenu(menu, group);
+}
+
 document.addEventListener("pointerover", (event) => {
   handleBookmarkButtonEntry(event.target);
   handleFollowButtonEntry(event.target);
-});
+}, contentScriptEventOptions);
 document.addEventListener("focusin", (event) => {
   handleBookmarkButtonEntry(event.target);
   handleFollowButtonEntry(event.target);
-});
+}, contentScriptEventOptions);
 document.addEventListener("pointerout", (event) => {
   const anchoredBookmark = event.target?.closest?.("button") === bookmarkCandidateState?.bookmarkButton;
-  if (anchoredBookmark && !event.relatedTarget?.closest?.("#x-to-md-bookmark-candidate-toolbar")) scheduleRemoveBookmarkCandidateToolbar();
+  if (anchoredBookmark && !isWithinAnchorOrToolbar(event.relatedTarget, bookmarkCandidateState?.bookmarkButton, "#x-to-md-bookmark-candidate-toolbar")) scheduleRemoveBookmarkCandidateToolbar();
   const anchoredButton = event.target?.closest?.("button") === followSubscriptionState?.followButton;
-  if (anchoredButton && !event.relatedTarget?.closest?.("#x-to-md-follow-subscription-toolbar")) scheduleRemoveFollowSubscriptionToolbar();
-});
+  if (anchoredButton && !isWithinAnchorOrToolbar(event.relatedTarget, followSubscriptionState?.followButton, "#x-to-md-follow-subscription-toolbar")) scheduleRemoveFollowSubscriptionToolbar();
+}, contentScriptEventOptions);
 document.addEventListener("focusout", (event) => {
   const anchoredBookmark = event.target?.closest?.("button") === bookmarkCandidateState?.bookmarkButton;
-  if (anchoredBookmark && !event.relatedTarget?.closest?.("#x-to-md-bookmark-candidate-toolbar")) scheduleRemoveBookmarkCandidateToolbar();
+  if (anchoredBookmark && !isWithinAnchorOrToolbar(event.relatedTarget, bookmarkCandidateState?.bookmarkButton, "#x-to-md-bookmark-candidate-toolbar")) scheduleRemoveBookmarkCandidateToolbar();
   const anchoredButton = event.target?.closest?.("button") === followSubscriptionState?.followButton;
-  if (anchoredButton && !event.relatedTarget?.closest?.("#x-to-md-follow-subscription-toolbar")) scheduleRemoveFollowSubscriptionToolbar();
-});
+  if (anchoredButton && !isWithinAnchorOrToolbar(event.relatedTarget, followSubscriptionState?.followButton, "#x-to-md-follow-subscription-toolbar")) scheduleRemoveFollowSubscriptionToolbar();
+}, contentScriptEventOptions);
 document.addEventListener("click", (event) => {
   const clickedButton = event.target?.closest?.("button");
-  if (clickedButton !== followSubscriptionState?.followButton) return;
-  window.setTimeout(() => {
-    if (!followButtonFromTarget(clickedButton)) removeFollowSubscriptionToolbar();
-  }, 0);
-});
+  if (clickedButton === followSubscriptionState?.followButton) {
+    window.setTimeout(() => {
+      if (!followButtonFromTarget(clickedButton)) removeFollowSubscriptionToolbar();
+    }, 0);
+  }
+}, contentScriptEventOptions);
+
+function handleArticleMoreMenuTrigger(event) {
+  const trigger = articleMoreButtonFromTarget(event.target);
+  if (!trigger) return;
+  articleMoreTriggerState = trigger;
+  recordArticleMenuDiagnostic("caret-triggered", { hasCandidate: Boolean(trigger.candidate), eventType: event.type });
+  scheduleArticleMoreMenu();
+}
+
+document.addEventListener("pointerdown", handleArticleMoreMenuTrigger, { capture: true, ...contentScriptEventOptions });
+document.addEventListener("click", handleArticleMoreMenuTrigger, { capture: true, ...contentScriptEventOptions });
 
 document.addEventListener("mousedown", (event) => {
   if (!event.target.closest("#x-to-md-bookmark-candidate-toolbar") && event.target.closest("button") !== bookmarkCandidateState?.bookmarkButton) removeBookmarkCandidateToolbar();
   if (!event.target.closest("#x-to-md-follow-subscription-toolbar") && event.target.closest("button") !== followSubscriptionState?.followButton) removeFollowSubscriptionToolbar();
-}, true);
+}, { capture: true, ...contentScriptEventOptions });
 
 function importPanelStyle() {
   const style = document.createElement("style");
@@ -658,10 +903,12 @@ function importPanelStyle() {
     }
     #x-to-md-import-panel button:hover { background: rgb(39, 44, 48) !important; }
     #x-to-md-import-panel button:disabled { opacity: .6 !important; cursor: wait !important; }
+    #x-to-md-import-panel button[data-import-state="open"] { border: 1px solid rgb(207, 217, 222) !important; background: #fff !important; color: rgb(15, 20, 25) !important; }
     #x-to-md-import-panel [data-import-status]:not(:empty) {
       margin-top: 12px !important; color: rgb(244, 33, 46) !important;
       font: 400 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
     }
+    #x-to-md-import-panel [data-import-status].is-success { color: rgb(0, 186, 124) !important; }
   `;
   return style;
 }
@@ -682,21 +929,46 @@ function createImportPanel() {
   panel.innerHTML = '<h2>Copy Markdown</h2><p>Copy the current X content as Markdown. Nothing is uploaded.</p><button type="button" data-import>Extract and copy</button><div data-import-status role="status" aria-live="polite"></div>';
   document.head.append(style);
   document.body.append(panel);
-  importPanelState = { panel, style };
+  importPanelState = { panel, style, capture: null, saved: false };
   const button = panel.querySelector("[data-import]");
   const status = panel.querySelector("[data-import-status]");
   button.addEventListener("click", async () => {
+    const panelState = importPanelState;
+    if (!panelState) return;
     button.disabled = true;
-    button.textContent = "Extracting…";
+    button.textContent = panelState.capture ? "Saving…" : "Extracting…";
     status.textContent = "";
+    status.className = "";
     try {
-      const capture = await capturePage();
-      await navigator.clipboard.writeText(capture.content);
+      if (!panelState.capture) {
+        const capture = await capturePage();
+        await navigator.clipboard.writeText(capture.content);
+        panelState.capture = capture;
+        chrome.runtime.sendMessage({ type: "capture-completed", sourceUrl: capture.sourceUrl }).catch(() => {});
+        button.disabled = false;
+        button.textContent = "Save to library";
+        status.textContent = "Markdown copied. Save it to add it to your library.";
+        status.className = "is-success";
+        return;
+      }
+      if (!panelState.saved) {
+        const result = await chrome.runtime.sendMessage({ type: "save-capture-to-library", capture: panelState.capture });
+        if (result?.error) throw new Error(result.error);
+        panelState.saved = true;
+        button.disabled = false;
+        button.dataset.importState = "open";
+        button.textContent = "Open Side Panel";
+        status.textContent = result?.existing ? "Already in your library." : "Saved to library.";
+        status.className = "is-success";
+        return;
+      }
+      const result = await chrome.runtime.sendMessage({ type: "open-side-panel" });
+      if (result?.error) throw new Error(result.error);
       removeImportPanel();
     } catch (error) {
       status.textContent = error.message || "Extraction failed. Please try again.";
       button.disabled = false;
-      button.textContent = "Extract and copy";
+      button.textContent = panelState.saved ? "Open Side Panel" : panelState.capture ? "Save to library" : "Extract and copy";
     }
   });
 }
@@ -996,7 +1268,7 @@ function currentPageContext() {
   return { ok: true, pageKind: /^https:\/\/(?:www\.)?(?:x|twitter)\.com\//u.test(sourceUrl) ? "x-page" : "unsupported", sourceUrl, title: "", authorName: "", authorHandle: "", candidateUrl: "" };
 }
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+addRuntimeMessageListener((message, sender, sendResponse) => {
   if (message?.type !== "get-current-context") return;
   try {
     sendResponse(currentPageContext());
@@ -1005,7 +1277,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+addRuntimeMessageListener((message, sender, sendResponse) => {
   if (message?.type !== "capture-x") return;
   capturePage()
     .then((capture) => {
@@ -1016,7 +1288,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+addRuntimeMessageListener((message, sender, sendResponse) => {
   if (message?.type !== "capture-current-for-sidepanel") return;
   capturePage()
     .then((capture) => { chrome.runtime.sendMessage({ type: "capture-completed", sourceUrl: capture.sourceUrl }).catch(() => {}); sendResponse(capture); })
@@ -1024,12 +1296,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+addRuntimeMessageListener((message, sender, sendResponse) => {
   if (message?.type !== "x-to-md-ready") return;
-  sendResponse({ ok: true });
+  sendResponse({ ok: true, revision: CONTENT_SCRIPT_REVISION });
 });
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+addRuntimeMessageListener((message, sender, sendResponse) => {
   if (message?.type !== "toggle-candidate-overlay") return;
   toggleCandidateOverlay()
     .then(sendResponse)
@@ -1037,8 +1309,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+addRuntimeMessageListener((message, sender, sendResponse) => {
   if (message?.type !== "toggle-import-panel") return;
   toggleImportPanel();
   sendResponse({ ok: true });
 });
+
+globalThis.__xToMdContentScript = {
+  revision: CONTENT_SCRIPT_REVISION,
+  diagnostics: articleMenuDiagnostics,
+  dispose: disposeContentScript,
+};
+}());

@@ -33,6 +33,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .main-column { min-width: 0; flex: 1; }
 .view { min-width: 0; }
 .page-header { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 0 16px; border-bottom: 1px solid var(--x-border); background: rgba(255,255,255,.96); backdrop-filter: blur(8px); }
+.page-header[hidden] { display: none; }
 .page-header h1 { margin: 0; font-size: 20px; line-height: 24px; }
 .back-button { display: grid; width: 34px; height: 34px; place-items: center; padding: 0; border: 0; border-radius: 9999px; background: transparent; color: var(--x-primary); }
 .back-button svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; }
@@ -51,11 +52,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .candidate-search:focus-within { border-color: var(--x-blue); box-shadow: 0 0 0 1px var(--x-blue); }
 .candidate-search input { min-width: 0; flex: 1; height: 40px; padding: 0; border: 0; outline: 0; color: var(--x-primary); background: transparent; }
 .candidate-search input::placeholder { color: var(--x-secondary); }
-.candidate-date-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
-.candidate-date-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
-.candidate-date-tabs button { min-height: 32px; padding: 0 12px; border: 0; border-radius: var(--twitter-radius-pill); background: transparent; color: var(--x-secondary); font-size: 13px; font-weight: 700; }
+.candidate-date-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.candidate-date-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; }
+.candidate-date-tabs button { display: inline-flex; align-items: center; gap: 4px; min-height: 32px; padding: 0 12px; border: 0; border-radius: var(--twitter-radius-pill); background: transparent; color: var(--x-secondary); font-size: 13px; font-weight: 700; }
 .candidate-date-tabs button:hover { background: var(--x-hover); }
 .candidate-date-tabs button.is-active { background: rgba(29,155,240,.1); color: var(--x-blue); }
+.candidate-date-count { color: var(--x-secondary); font-size: 12px; font-weight: 400; font-variant-numeric: tabular-nums; }
+.candidate-date-tabs button.is-active .candidate-date-count { color: inherit; }
 .stats-filters { display: flex; flex-wrap: wrap; gap: 4px; padding: 10px 16px 8px; border-bottom: 1px solid var(--x-border); }
 .stats-date-tab { min-height: 32px; padding: 0 12px; border: 0; border-radius: var(--twitter-radius-pill); background: transparent; color: var(--x-secondary); font-size: 13px; font-weight: 700; }
 .stats-date-tab:hover { background: var(--x-hover); }
@@ -101,8 +104,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .follow-button:hover, .follow-button:focus-visible { border-color: var(--twitter-color-destructive); background: var(--twitter-color-destructive-hover); color: var(--twitter-color-destructive); }
 .follow-button:hover .following-label, .follow-button:focus-visible .following-label { display: none; }
 .follow-button:hover .unfollow-label, .follow-button:focus-visible .unfollow-label { display: inline; }
-.candidate-context { display: flex; align-items: center; justify-content: space-between; min-height: 44px; padding: 0 16px; color: var(--x-secondary); font-size: 15px; border-bottom: 1px solid var(--x-border); }
-.candidate-sort { display: flex; align-items: center; gap: 4px; }
+.candidate-sort { display: flex; align-items: center; gap: 4px; margin-left: auto; }
 .candidate-sort button { min-height: 32px; padding: 0 10px; border: 0; border-radius: 9999px; background: transparent; color: var(--x-secondary); font-size: 13px; font-weight: 700; }
 .candidate-sort button:hover { background: var(--x-hover); }
 .candidate-sort button.is-active { background: rgba(29,155,240,.1); color: var(--x-blue); }
@@ -165,5 +167,5 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .tab:hover { background: var(--x-hover); color: var(--x-primary); }
 .tab.is-active { background: transparent; color: var(--x-primary); }
 .tab-more { margin-top: auto; }
-@media (max-width: 520px) { .candidate-context, .article-post { padding-right: 16px; padding-left: 16px; } .article-author .article-handle { max-width: 34%; } .article-engagement-item { gap: 3px; } }
+@media (max-width: 520px) { .article-post { padding-right: 16px; padding-left: 16px; } .article-author .article-handle { max-width: 34%; } .article-engagement-item { gap: 3px; } }
 @media (max-width: 340px) { .tabbar { flex-basis: 56px; } .tab { width: 44px; height: 44px; } .tab svg { width: 24px; height: 24px; } .page-header { padding-inline: 12px; } }

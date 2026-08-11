@@ -9,13 +9,14 @@
 - 权限保持最小化：`activeTab`、`storage`、`sidePanel`、`scripting` 和四个 X/Twitter HTTPS 主机范围；`scripting` 仅向已打开的 X/Twitter 标签补注入已打包事件脚本，或在用户点击 Action 后注入当前标签，避免扩展重载前已打开的 X 页面缺少交互；脚本仅在用户 hover/focus 原生 Follow 或 Bookmark 按钮时读取对应局部 DOM。v2 主链路不使用存储传递视觉内容，保留旧语义预览兼容页。
 - v2.3.0 增加 Chrome Side Panel Content Inbox：收件箱、关注作者、候选去重/状态、素材库搜索与主动保存；数据写入 `chrome.storage.local`。
 - Side Panel 现在读取当前标签页的只读上下文；Article 页面提供“保存并复制 Markdown”，作者 Articles 页面提示从 X 原文加入收件箱，非 X 页面显示边界提示。
-- 候选卡只提供扩展书签“从收件箱移除”；候选 `•••`、`忽略候选` 和候选卡内“添加至素材库”入口已移除。当前 Article 仍可在 Side Panel 一次“保存并复制 Markdown”，保存后从候选集移除并支持短时撤销。
+- 候选卡只提供扩展书签“从收件箱移除”；候选 `•••`、`忽略候选` 和候选卡内“添加至素材库”入口已移除。单篇 X 原文在原生 Bookmark hover/focus 操作位额外提供 `Extract and copy`；复制后必须再次点击 `Save to library` 才会写入素材，保存后可打开 Side Panel 查看素材库。Side Panel 的“保存并复制 Markdown”仍是同一后台保存路径的快捷入口。
 - 在 X 原文中悬停或键盘聚焦原生 `Follow @handle` 或 `Following` 按钮，会出现扩展的关注作者工具栏；覆盖 Profile Summary、Follow 列表 UserCell、Article 作者头部和 Profile 头部，不再要求选取作者名称，且状态以扩展关注作者列表为准。未关注时显示蓝色 `Follow` 并按公开 handle 去重写入；已关注时显示 `Following`，hover/focus 变为红色 `unfollow`，点击从同一存储删除。Side Panel 通过存储监听实时同步。
 - “关注作者”页只保留 X Follow UI：使用 X `--twitter-*` token 显示头像、姓名、认证标识、handle、简介与 `Following`；作者信息区直接链接到 `https://x.com/<handle>`，悬停/聚焦关注按钮时变为红色 `unfollow`，点击直接取消关注。旧的手动添加、详情、编辑、启停、扫描和删除入口已移除。
 - 在作者 Articles 列表的每张 Article 卡片、其 `/status/<id>` 原文及已打开的 X Article 原文中，hover/focus 原生 Bookmark 按钮会在其左侧相邻位置显示收件箱书签操作，保留原生 Bookmark 可见与可点击；未加入时显示蓝色“添加至收件箱”，已加入时显示实心书签，hover/focus 变为红色“从收件箱移除”。移除后可重新添加；`ignored`/`saved` 候选再次添加时复用原记录并恢复为 `new`，不删除素材库。
 - 原文书签操作写入或移除候选后，已打开的 Side Panel 通过 `chrome.storage.onChanged` 自动刷新收件箱；收件箱默认按 `addedAt` 显示今日，可按昨日、本周、上周或本月筛选，并支持标题、作者、handle 与 URL 搜索；同时显示活跃候选总数和按添加日期聚合的趋势图。
 - 修复 Side Panel 在扩展重载后直接获取 Article 的 `Could not establish connection`：仅对 X/Twitter 当前页执行一次刷新并有限重试，最终显示可操作中文错误。
-- 修复扩展 Action 点击无响应：Side Panel 现在在用户点击手势内先打开，Content Script 注入改为并行 best-effort，打开失败时保留候选浮层回退。
+- 修复扩展 Action 点击无响应：Side Panel 现在在用户点击手势内先打开，Content Script 注入改为并行 best-effort，打开失败时保留候选浮层回退。Action 始终承担 Side Panel 入口，不再按原文 URL 切换为提取入口。
+- X Article 的原生 More Dropdown 追加蓝色 x-to-md 分组：关注/取消关注作者、`Extract and copy`、添加至/移出收件箱。Content Script v6 使用可重复执行的单实例生命周期，后台补注入后必须二次确认 revision；只监听 X 的 `#layers` Portal 识别 Article Dropdown 挂载，菜单分组只观察当前 Dropdown 的直接子节点，在 X React 重绘移除分组时恢复，并在实例替换时断开。
 
 ## 当前技术债与风险
 

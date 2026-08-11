@@ -2,6 +2,7 @@ const STORAGE_KEY = "x-to-md-content-inbox";
 const view = document.querySelector("#view");
 const status = document.querySelector("#status");
 const currentContext = document.querySelector("#current-context");
+const pageHeader = document.querySelector(".page-header");
 const pageTitle = document.querySelector("#page-title");
 const backButton = document.querySelector(".back-button");
 
@@ -26,7 +27,6 @@ function formatDate(value) {
   const date = new Date(value);
   return Number.isNaN(date.valueOf()) ? value : date.toLocaleDateString("zh-CN", { month: "short", day: "numeric" });
 }
-function id(prefix) { return `${prefix}_${crypto.randomUUID?.() || `${Date.now()}_${Math.random().toString(16).slice(2)}`}`; }
 function setStatus(message = "", kind = "") {
   window.clearTimeout(setStatus.clearTimer);
   status.textContent = message;
@@ -165,6 +165,10 @@ function filteredCandidates() {
 function activeCandidates() {
   return state.data.candidates.filter((candidate) => candidate.status !== "ignored" && candidate.status !== "saved");
 }
+function candidateCountForDate(filter) {
+  const range = dateRangeForFilter(filter);
+  return activeCandidates().filter((candidate) => candidateInRange(candidate, range)).length;
+}
 function chartData(filter = state.candidateDate) {
   const range = dateRangeForFilter(filter);
   const days = Math.max(1, Math.ceil((range.end - range.start) / 86400000));
@@ -258,11 +262,15 @@ function renderCandidates() {
   const candidates = sortedCandidates(filteredCandidates());
   const total = activeCandidates().length;
   const hasCandidates = total > 0;
-  const filters = `<div class="candidate-filters"><label class="candidate-search"><span class="sr-only">搜索收件箱</span><span aria-hidden="true">⌕</span><input data-candidate-search type="search" placeholder="搜索收件箱" value="${escapeHtml(state.candidateQuery)}" aria-label="搜索收件箱"></label><div class="candidate-date-row"><div class="candidate-date-tabs" role="group" aria-label="收件箱日期筛选"><button class="${state.candidateDate === "today" ? "is-active" : ""}" data-candidate-date="today" type="button">今日</button><button class="${state.candidateDate === "yesterday" ? "is-active" : ""}" data-candidate-date="yesterday" type="button">昨日</button><button class="${state.candidateDate === "thisWeek" ? "is-active" : ""}" data-candidate-date="thisWeek" type="button">本周</button><button class="${state.candidateDate === "lastWeek" ? "is-active" : ""}" data-candidate-date="lastWeek" type="button">上周</button><button class="${state.candidateDate === "thisMonth" ? "is-active" : ""}" data-candidate-date="thisMonth" type="button">本月</button></div></div></div>`;
-  const range = dateRangeForFilter();
-  const context = `<div class="candidate-context"><span>收件箱总数 ${total} · ${range.label} ${candidates.length} 篇</span><div class="candidate-sort" role="group" aria-label="收件箱排序"><button class="${state.candidateSort === "addedAt" ? "is-active" : ""}" data-candidate-sort="addedAt" type="button">最近添加</button><button class="${state.candidateSort === "publishedAt" ? "is-active" : ""}" data-candidate-sort="publishedAt" type="button">最新发表</button></div></div>`;
+  const dates = ["today", "yesterday", "thisWeek", "lastWeek", "thisMonth"];
+  const dateTabs = dates.map((date) => {
+    const label = dateRangeForFilter(date).label;
+    const count = candidateCountForDate(date);
+    return `<button class="${state.candidateDate === date ? "is-active" : ""}" data-candidate-date="${date}" type="button" aria-label="${label} ${count} 篇">${label}<span class="candidate-date-count" aria-hidden="true">${count}</span></button>`;
+  }).join("");
+  const filters = `<div class="candidate-filters"><label class="candidate-search"><span class="sr-only">搜索收件箱</span><span aria-hidden="true">⌕</span><input data-candidate-search type="search" placeholder="搜索收件箱" value="${escapeHtml(state.candidateQuery)}" aria-label="搜索收件箱"></label><div class="candidate-date-row"><div class="candidate-date-tabs" role="group" aria-label="收件箱日期筛选">${dateTabs}</div><div class="candidate-sort" role="group" aria-label="收件箱排序"><button class="${state.candidateSort === "addedAt" ? "is-active" : ""}" data-candidate-sort="addedAt" type="button">最近添加</button><button class="${state.candidateSort === "publishedAt" ? "is-active" : ""}" data-candidate-sort="publishedAt" type="button">最新发表</button></div></div></div>`;
   const emptyMessage = hasCandidates ? "当前筛选条件下没有匹配的 Article。" : "还没有候选 Article。前往关注作者，打开作者的 Articles 页面并手动获取。";
-  view.innerHTML = `${filters}${context}${candidates.length ? candidates.map(candidateCell).join("") : `<p class="empty">${emptyMessage}</p>`}`;
+  view.innerHTML = `${filters}${candidates.length ? candidates.map(candidateCell).join("") : `<p class="empty">${emptyMessage}</p>`}`;
 }
 function subscriptionCell(subscription) {
   const name = subscription.displayName || subscription.handle;
@@ -295,6 +303,7 @@ function renderStats() {
 }
 function render() {
   document.querySelectorAll("[data-view]").forEach((tab) => tab.classList.toggle("is-active", tab.dataset.view === state.page));
+  pageHeader.hidden = ["candidates", "subscriptions", "assets"].includes(state.page);
   pageTitle.textContent = { candidates: "收件箱", subscriptions: "关注作者", assets: "素材库", stats: "统计" }[state.page] || "收件箱";
   if (state.page === "candidates") renderCandidates();
   else if (state.page === "subscriptions") renderSubscriptions();
@@ -309,17 +318,11 @@ async function saveCurrentExtraction(expectedCandidate = null) {
   const capture = await sendToContent(tab, { type: "capture-current-for-sidepanel" });
   if (capture?.error) throw new Error(capture.error || "无法读取当前 X 内容。");
   await navigator.clipboard.writeText(capture.content || "");
-  const candidate = expectedCandidate || state.data.candidates.find((item) => articleId(item.sourceUrl) === articleId(capture.sourceUrl));
-  const existing = state.data.assets.find((asset) => asset.sourceUrl === capture.sourceUrl);
-  if (existing) {
-    if (candidate && candidate.status !== "saved") { candidate.status = "saved"; await saveData(); render(); }
-    setStatus("该素材已在素材库中，Markdown 已复制");
-    await refreshContext({ resetPage: false });
-    return;
-  }
-  state.data.assets.unshift({ id: id("asset"), candidateId: candidate?.id || null, sourceUrl: capture.sourceUrl, title: capture.title || "Untitled Article", authorHandle: capture.authorHandle || "", markdown: capture.content || "", tags: [], note: "", usageStatus: "unused", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
-  if (candidate) candidate.status = "saved";
-  await saveData(); setStatus("已保存并复制 Markdown"); render();
+  const result = await chrome.runtime.sendMessage({ type: "save-capture-to-library", capture });
+  if (result?.error) throw new Error(result.error);
+  await loadData();
+  setStatus(result?.existing ? "该素材已在素材库中，Markdown 已复制" : "已保存并复制 Markdown");
+  render();
   await refreshContext({ resetPage: false });
 }
 async function handleAction(action, target) {

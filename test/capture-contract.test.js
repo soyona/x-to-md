@@ -10,6 +10,21 @@ function markdownTools() {
   return context.globalThis.XToXhsMarkdown;
 }
 
+function inboxStore() {
+  const source = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  const event = { addListener() {} };
+  const context = {
+    chrome: {
+      runtime: { onInstalled: event, onStartup: event, onMessage: event },
+      action: { onClicked: event },
+      tabs: { query: async () => [] },
+    },
+    console: { error() {} },
+  };
+  runInNewContext(source, context);
+  return context.XToMdInboxStore;
+}
+
 test("复制 Markdown 保留文本结构且过滤图片", () => {
   const markdown = markdownTools().blocksToMarkdown([
     { type: "heading", level: 1, text: "文章标题" },
@@ -49,17 +64,44 @@ test("Manifest 保持独立运行所需的最小权限", () => {
   assert.equal(manifest.background.service_worker, "background.js");
   assert.equal(manifest.web_accessible_resources, undefined);
   const background = readFileSync(new URL("../background.js", import.meta.url), "utf8");
+  assert.doesNotMatch(background, /importScripts/u);
+  assert.match(background, /registerInboxStore/u);
+  assert.match(background, /type === "save-capture-to-library"/u);
+  assert.match(background, /type === "open-side-panel"/u);
+  assert.doesNotMatch(background, /isExtractableXContent/u);
   assert.match(background, /toggle-candidate-overlay/u);
   assert.match(background, /chrome\.sidePanel\.open/u);
   assert.match(background, /chrome\.sidePanel\.open\(\{ windowId: tab\.windowId \}\)\.catch/u);
   assert.match(background, /chrome\.sidePanel\.open\([\s\S]+?ensureContentScript\(tab\)\.catch/u);
   assert.match(background, /ensureContentScript/u);
   assert.match(background, /chrome\.scripting\.executeScript/u);
-  assert.match(background, /if \(ready\?\.ok\) return;/u);
+  assert.match(background, /ready\?\.ok && ready\.revision === CONTENT_SCRIPT_REVISION/u);
+  assert.match(background, /CONTENT_SCRIPT_REVISION = "article-more-menu-v9"/u);
+  assert.match(background, /Content script revision mismatch/u);
+  assert.match(background, /Service worker initialization failed/u);
+  assert.match(background, /reportContentScriptError/u);
   assert.match(background, /files: \["markdown\.js", "content\.js"\]/u);
   assert.match(background, /injectOpenXTabs/u);
   assert.match(background, /chrome\.runtime\.onInstalled/u);
   assert.match(background, /chrome\.runtime\.onStartup/u);
+});
+
+test("素材只在明确保存后进入素材库并按来源去重", () => {
+  const store = inboxStore();
+  const capture = { sourceUrl: "https://x.com/example/status/42?foo=bar", title: "Source title", authorHandle: "@example", content: "# Source title" };
+  const inbox = { candidates: [{ id: "article_42", sourceUrl: "https://x.com/example/status/42", status: "extracted" }], assets: [] };
+
+  const saved = store.saveCapture(inbox, capture, { id: "asset_42", now: "2026-08-11T12:00:00.000Z" });
+  assert.equal(inbox.assets.length, 0);
+  assert.equal(saved.existing, false);
+  assert.equal(saved.inbox.assets.length, 1);
+  assert.equal(saved.inbox.assets[0].candidateId, "article_42");
+  assert.equal(saved.inbox.assets[0].usageStatus, "unused");
+  assert.equal(saved.inbox.candidates[0].status, "saved");
+
+  const repeated = store.saveCapture(saved.inbox, capture, { id: "asset_duplicate", now: "2026-08-11T12:01:00.000Z" });
+  assert.equal(repeated.existing, true);
+  assert.equal(repeated.inbox.assets.length, 1);
 });
 
 test("Content Inbox 提供上下文感知收件箱、关注作者和素材库 Side Panel", () => {
@@ -72,6 +114,8 @@ test("Content Inbox 提供上下文感知收件箱、关注作者和素材库 Si
   assert.match(html, /关注作者/u);
   assert.match(html, /素材库/u);
   assert.match(html, /current-context/u);
+  assert.match(script, /pageHeader\.hidden = \["candidates", "subscriptions", "assets"\]\.includes\(state\.page\)/u);
+  assert.match(css, /\.page-header\[hidden\] \{ display: none; \}/u);
   assert.doesNotMatch(script, /discover-articles/u);
   assert.match(script, /Receiving end does not exist/u);
   assert.match(script, /tabs\.reload\(tab\.id\)/u);
@@ -121,6 +165,45 @@ test("Content Inbox 提供上下文感知收件箱、关注作者和素材库 Si
   assert.match(content, /pageKind: "article"/u);
   assert.match(content, /pageKind: "author-articles"/u);
   assert.match(content, /get-current-context/u);
+  assert.match(content, /initializeXToMdContentScript/u);
+  assert.match(content, /new CustomEvent\("x-to-md:dispose-content-script"\)/u);
+  assert.match(content, /globalThis\.__xToMdContentScript\?\.dispose\?\.\(\)/u);
+  assert.match(content, /extension context may already be invalidated during reload/u);
+  assert.match(content, /diagnostics: articleMenuDiagnostics/u);
+  assert.match(content, /contentScriptAbortController\.abort\(\)/u);
+  assert.match(content, /chrome\.runtime\.onMessage\.removeListener/u);
+  assert.match(content, /isWithinAnchorOrToolbar\(event\.relatedTarget, bookmarkCandidateState\?\.bookmarkButton/u);
+  assert.match(content, /isWithinAnchorOrToolbar\(event\.relatedTarget, followSubscriptionState\?\.followButton/u);
+  assert.match(content, /x-to-md-article-menu-group/u);
+  assert.match(content, /articleMoreButtonFromTarget/u);
+  assert.match(content, /articleMoreTriggerState/u);
+  assert.match(content, /articleCandidateFromListRoot\(root\)/u);
+  assert.match(content, /addEventListener\("pointerdown", handleArticleMoreMenuTrigger/u);
+  assert.match(content, /scheduleArticleMoreMenu/u);
+  assert.match(content, /requestAnimationFrame\(injectWhenReady\)/u);
+  assert.match(content, /\[data-testid="Dropdown"\]/u);
+  assert.match(content, /setTimeout\(injectWhenReady, 50\)/u);
+  assert.match(content, /\(\?:Follow\|Unfollow\)/u);
+  assert.match(content, /revision: CONTENT_SCRIPT_REVISION/u);
+  assert.match(content, /CONTENT_SCRIPT_REVISION = "article-more-menu-v9"/u);
+  assert.match(content, /reconcileArticleMoreMenu/u);
+  assert.match(content, /articleMoreMenuObserver\.observe\(menu, \{ childList: true \}\)/u);
+  assert.match(content, /button\[data-testid="caret"\]\[aria-haspopup="menu"\]/u);
+  assert.match(content, /Opening the native menu must not depend on optional candidate metadata/u);
+  assert.doesNotMatch(content, /#layers|articleMenuMountObserver|observeArticleMenuMounts/u);
+  assert.match(content, /dropdown-timeout/u);
+  assert.match(content, /missing-menu-context/u);
+  assert.match(content, /group-inserted/u);
+  assert.match(content, /group-removed-by-page/u);
+  assert.match(content, /console\.error\("\[x-to-md\] Could not inject Article menu\.", error\)/u);
+  assert.match(content, /labelSlot\.textContent = label/u);
+  assert.doesNotMatch(content, /escapeHtml/u);
+  assert.match(content, /Embed Article\|Report Article/u);
+  assert.match(content, /关注作者/u);
+  assert.match(content, /Extract and copy/u);
+  assert.match(content, /添加至收件箱/u);
+  assert.match(content, /template\.cloneNode\(true\)/u);
+  assert.doesNotMatch(content, /color: rgb\(29, 155, 240\)/u);
   assert.doesNotMatch(content, /currentPageContext[\s\S]{0,500}content:/u);
   assert.doesNotMatch(content, /articlePresentationTokens/u);
   assert.match(script, /article-engagement/u);
@@ -136,14 +219,14 @@ test("Content Inbox 提供上下文感知收件箱、关注作者和素材库 Si
   assert.match(script, /candidateQuery: ""/u);
   assert.match(script, /candidateDate: "today"/u);
   assert.match(script, /搜索收件箱/u);
-  assert.match(script, /data-candidate-date="today"/u);
-  assert.match(script, /data-candidate-date="yesterday"/u);
-  assert.match(script, /data-candidate-date="thisWeek"/u);
-  assert.match(script, /data-candidate-date="lastWeek"/u);
-  assert.match(script, /data-candidate-date="thisMonth"/u);
+  assert.match(script, /\["today", "yesterday", "thisWeek", "lastWeek", "thisMonth"\]/u);
+  assert.match(script, /data-candidate-date="\$\{date\}"/u);
   assert.match(script, /timestamp\(candidate\.addedAt\)/u);
   assert.doesNotMatch(script, /data-candidate-date-input|type="month"/u);
-  assert.match(script, /收件箱总数/u);
+  assert.match(script, /candidate-date-count/u);
+  assert.match(script, /candidateCountForDate/u);
+  assert.match(script, /aria-label="\$\{label\} \$\{count\} 篇"/u);
+  assert.doesNotMatch(script, /收件箱总数/u);
   assert.match(script, /candidate-chart/u);
   assert.match(script, /chart-line/u);
   assert.match(script, /candidateMatchesQuery/u);
@@ -156,6 +239,8 @@ test("Content Inbox 提供上下文感知收件箱、关注作者和素材库 Si
   assert.match(script, /请先打开此候选的 X 原文/u);
   assert.match(script, /复制 Markdown/u);
   assert.match(script, /保存并复制 Markdown/u);
+  assert.match(script, /save-capture-to-library/u);
+  assert.doesNotMatch(script, /state\.data\.assets\.unshift/u);
   assert.match(script, /context-save/u);
   assert.doesNotMatch(script, /context-scan/u);
   assert.match(script, /refreshContext/u);
@@ -217,6 +302,11 @@ test("Popup 与预览页保留清晰的成功、边界和来源反馈", () => {
   assert.doesNotMatch(contentScript, /root\.querySelectorAll\('button, \[role="button"\]\)/u);
   assert.doesNotMatch(contentScript, /message\?\.type !== "open-native-preview"/u);
   assert.match(contentScript, /toggle-import-panel/u);
+  assert.match(contentScript, /data-extract-current/u);
+  assert.match(contentScript, /isArticleSourcePage\(\)\n    \? '<button/u);
+  assert.match(contentScript, /Save to library/u);
+  assert.match(contentScript, /open-side-panel/u);
+  assert.match(contentScript, /save-capture-to-library/u);
   assert.match(contentScript, /toggle-candidate-overlay/u);
   assert.match(contentScript, /x-to-md-ready/u);
   assert.match(contentScript, /toggleCandidateOverlay/u);
@@ -242,7 +332,7 @@ test("Popup 与预览页保留清晰的成功、边界和来源反馈", () => {
   assert.match(contentScript, /cover\?\.querySelector\("img"\)/u);
   assert.match(contentScript, /isArticlesIndexPage/u);
   assert.match(contentScript, /bookmarkButton\.getBoundingClientRect/u);
-  assert.match(contentScript, /rect\.left - rect\.width - gap/u);
+  assert.match(contentScript, /rect\.left - toolbarRect\.width - gap/u);
   assert.match(contentScript, /rect\.right \+ gap/u);
   assert.match(contentScript, /Untitled Article/u);
   assert.match(contentScript, /data-toggle-inbox-candidate/u);
@@ -270,7 +360,8 @@ test("Popup 与预览页保留清晰的成功、边界和来源反馈", () => {
   assert.match(contentScript, /positionBookmarkCandidateToolbar/u);
   assert.match(contentScript, /width: 18\.75px !important/u);
   assert.doesNotMatch(contentScript, /selectionchange/u);
-  assert.doesNotMatch(contentScript, /MutationObserver/u);
+  assert.doesNotMatch(contentScript, /observe\(document\.(?:body|documentElement)/u);
+  assert.match(contentScript, /articleMoreMenuObserver\.observe\(menu, \{ childList: true \}\)/u);
   assert.match(contentScript, /profileHandleFromHref/u);
   assert.match(contentScript, /normalizedHandleText/u);
   assert.match(contentScript, /\\u200B-\\u200F\\u2060\\uFEFF/u);
