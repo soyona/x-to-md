@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Content Inbox</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <main id="app" class="inbox" aria-label="X Content Inbox">
+      <header class="topbar">
+        <h1 id="page-title">候选集</h1>
+        <button id="header-action" class="icon-button" type="button" aria-label="Filter candidates">⌕</button>
+      </header>
+      <div id="status" class="status" role="status" aria-live="polite"></div>
+      <section id="current-context" class="current-context" aria-live="polite"></section>
+      <section id="view" class="view"></section>
+      <nav class="tabbar" aria-label="Content Inbox navigation">
+        <button type="button" data-view="candidates" class="tab is-active">收件箱</button>
+        <button type="button" data-view="subscriptions" class="tab">关注作者</button>
+        <button type="button" data-view="assets" class="tab">素材库</button>
+      </nav>
+    </main>
+    <script src="sidepanel.js"></script>
+  </body>
+</html>
