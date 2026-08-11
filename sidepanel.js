@@ -2,6 +2,8 @@ const STORAGE_KEY = "x-to-md-content-inbox";
 const view = document.querySelector("#view");
 const status = document.querySelector("#status");
 const currentContext = document.querySelector("#current-context");
+const pageTitle = document.querySelector("#page-title");
+const backButton = document.querySelector(".back-button");
 
 const state = {
   page: "candidates",
@@ -266,6 +268,7 @@ function renderAssets() {
 }
 function render() {
   document.querySelectorAll("[data-view]").forEach((tab) => tab.classList.toggle("is-active", tab.dataset.view === state.page));
+  pageTitle.textContent = { candidates: "收件箱", subscriptions: "关注作者", assets: "素材库" }[state.page] || "收件箱";
   if (state.page === "candidates") renderCandidates();
   else if (state.page === "subscriptions") renderSubscriptions();
   else renderAssets();
@@ -348,6 +351,7 @@ document.addEventListener("click", async (event) => {
     await handleAction(action.dataset.action, action);
   } catch (error) { setStatus(error.message || "操作失败", "error"); }
 });
+backButton.addEventListener("click", () => { if (state.page !== "candidates") { state.page = "candidates"; render(); } });
 view.addEventListener("input", (event) => {
   if (event.target.matches("[data-asset-search]")) { state.assetQuery = event.target.value; renderAssets(); }
   if (event.target.matches("[data-candidate-search]")) { state.candidateQuery = event.target.value; renderCandidates(); view.querySelector("[data-candidate-search]")?.focus(); }
