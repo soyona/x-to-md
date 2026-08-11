@@ -10,10 +10,11 @@ function markdownTools() {
   return context.globalThis.XToXhsMarkdown;
 }
 
-function inboxStore() {
+function backgroundContext() {
   const source = readFileSync(new URL("../background.js", import.meta.url), "utf8");
   const event = { addListener() {} };
   const context = {
+    URL,
     chrome: {
       runtime: { onInstalled: event, onStartup: event, onMessage: event },
       action: { onClicked: event },
@@ -22,7 +23,11 @@ function inboxStore() {
     console: { error() {} },
   };
   runInNewContext(source, context);
-  return context.XToMdInboxStore;
+  return context;
+}
+
+function inboxStore() {
+  return backgroundContext().XToMdInboxStore;
 }
 
 test("复制 Markdown 保留文本结构且过滤图片", () => {
@@ -69,6 +74,9 @@ test("Manifest 保持独立运行所需的最小权限", () => {
   assert.match(background, /type === "save-capture-to-library"/u);
   assert.match(background, /type === "open-side-panel"/u);
   assert.doesNotMatch(background, /isExtractableXContent/u);
+  assert.match(background, /function isSupportedXTab\(tab\)/u);
+  assert.match(background, /if \(!isSupportedXTab\(tab\)\) return false;/u);
+  assert.match(background, /then\(\(isReady\) => isReady && chrome\.tabs\.sendMessage/u);
   assert.match(background, /toggle-candidate-overlay/u);
   assert.match(background, /chrome\.sidePanel\.open/u);
   assert.match(background, /chrome\.sidePanel\.open\(\{ windowId: tab\.windowId \}\)\.catch/u);
@@ -84,6 +92,15 @@ test("Manifest 保持独立运行所需的最小权限", () => {
   assert.match(background, /injectOpenXTabs/u);
   assert.match(background, /chrome\.runtime\.onInstalled/u);
   assert.match(background, /chrome\.runtime\.onStartup/u);
+});
+
+test("后台只向 X/Twitter 页面注入内容脚本", () => {
+  const runtime = backgroundContext();
+
+  assert.equal(runtime.isSupportedXTab({ url: "https://x.com/home" }), true);
+  assert.equal(runtime.isSupportedXTab({ url: "https://www.twitter.com/example/status/1" }), true);
+  assert.equal(runtime.isSupportedXTab({ url: "chrome://extensions/" }), false);
+  assert.equal(runtime.isSupportedXTab({ url: "https://example.com/" }), false);
 });
 
 test("素材只在明确保存后进入素材库并按来源去重", () => {

@@ -47,11 +47,22 @@ function reportContentScriptError(context, error) {
   console.error(`[x-to-md] ${context}`, error);
 }
 
+function isSupportedXTab(tab) {
+  try {
+    const url = new URL(tab?.url || tab?.pendingUrl || "");
+    return url.protocol === "https:"
+      && ["x.com", "www.x.com", "twitter.com", "www.twitter.com"].includes(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
 async function ensureContentScript(tab) {
   if (!tab?.id) throw new Error("No active tab.");
+  if (!isSupportedXTab(tab)) return false;
   try {
     const ready = await chrome.tabs.sendMessage(tab.id, { type: "x-to-md-ready" });
-    if (ready?.ok && ready.revision === CONTENT_SCRIPT_REVISION) return;
+    if (ready?.ok && ready.revision === CONTENT_SCRIPT_REVISION) return true;
   } catch {
     // A missing receiver also requires the current packaged content script.
   }
@@ -63,6 +74,7 @@ async function ensureContentScript(tab) {
   if (!ready?.ok || ready.revision !== CONTENT_SCRIPT_REVISION) {
     throw new Error(`Content script revision mismatch: expected ${CONTENT_SCRIPT_REVISION}, received ${ready?.revision || "none"}.`);
   }
+  return true;
 }
 
 async function injectOpenXTabs() {
@@ -93,14 +105,14 @@ chrome.action.onClicked.addListener((tab) => {
   if (chrome.sidePanel?.open && tab.windowId) {
     chrome.sidePanel.open({ windowId: tab.windowId }).catch(() => {
       ensureContentScript(tab)
-        .then(() => chrome.tabs.sendMessage(tab.id, { type: "toggle-candidate-overlay" }))
+        .then((isReady) => isReady && chrome.tabs.sendMessage(tab.id, { type: "toggle-candidate-overlay" }))
         .catch((error) => reportContentScriptError(`Could not initialize tab ${tab.id}.`, error));
     });
     ensureContentScript(tab).catch((error) => reportContentScriptError(`Could not initialize tab ${tab.id}.`, error));
     return;
   }
   ensureContentScript(tab)
-    .then(() => chrome.tabs.sendMessage(tab.id, { type: "toggle-candidate-overlay" }))
+    .then((isReady) => isReady && chrome.tabs.sendMessage(tab.id, { type: "toggle-candidate-overlay" }))
     .catch((error) => reportContentScriptError(`Could not initialize tab ${tab.id}.`, error));
 });
 
