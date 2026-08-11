@@ -173,11 +173,12 @@ function authorPresentationFromElement(element, handle = "", fallbackDisplayName
     .filter((link) => profileHandleFromHref(link.getAttribute("href")).toLowerCase() === handle.toLowerCase())
     .map((link) => textOf(link))
     .find((text) => text && normalizedHandleText(text) !== normalizedHandleText(handle));
-  const namedIdentity = textOf(root.querySelector('[data-testid="UserName"], [data-testid="User-Name"]'))
-    .split("\n")
-    .map((text) => text.trim())
-    .find((text) => text && normalizedHandleText(text) !== normalizedHandleText(handle));
-  const identity = linkedIdentity || namedIdentity;
+  const identityLines = [...root.querySelectorAll('[data-testid="UserName"], [data-testid="User-Name"]')]
+    .map((node) => textOf(node).split("\n").map((text) => text.trim()).filter(Boolean))
+    .find((lines) => lines.some((text) => normalizedHandleText(text) === normalizedHandleText(handle))) || [];
+  const namedIdentity = identityLines
+    .find((text) => normalizedHandleText(text) !== normalizedHandleText(handle));
+  const identity = namedIdentity || linkedIdentity;
   const displayName = identity || fallbackDisplayName;
   const normalizedIdentity = new Set([handle, displayName, "Follow", "Following"]
     .map(normalizedHandleText)
@@ -241,8 +242,8 @@ function authorRootFromFollowButton(button, handle) {
   return null;
 }
 
-function authorFromFollowButton(button) {
-  const handle = followHandleFromButton(button);
+function authorFromFollowButton(button, knownHandle = "") {
+  const handle = knownHandle || followHandleFromButton(button);
   if (!handle) return null;
   const root = authorRootFromFollowButton(button, handle);
   if (!root) return null;
@@ -702,10 +703,24 @@ function articleMenuAuthor(menu) {
   const context = menuHandle ? null : currentPageContext();
   const handle = menuHandle || context?.authorHandle || "";
   if (!handle) return null;
+  const nativeFollowButton = [...document.querySelectorAll("button")]
+    .find((button) => {
+      if (button === articleMoreTriggerState?.button || !followButtonFromTarget(button)) return false;
+      const root = authorRootFromFollowButton(button, handle);
+      return [...root?.querySelectorAll?.("a[href]") || []]
+        .some((link) => profileHandleFromHref(link.getAttribute("href")).toLowerCase() === handle.toLowerCase());
+    });
+  const nativeAuthor = nativeFollowButton ? authorFromFollowButton(nativeFollowButton, handle) : null;
+  const presentation = nativeAuthor || authorPresentationFromElement(
+    articleMoreTriggerState?.button || menu,
+    handle,
+    context?.authorName || handle,
+    articleMoreTriggerState?.button?.closest('[data-testid="primaryColumn"]') || document,
+  );
   return {
     handle,
-    displayName: context?.authorName || handle,
     profileUrl: `https://x.com/${handle.slice(1)}`,
+    ...presentation,
   };
 }
 

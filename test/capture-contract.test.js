@@ -165,6 +165,8 @@ test("Content Inbox 提供上下文感知收件箱、关注作者和素材库 Si
   assert.doesNotMatch(content, /discover-articles/u);
   assert.match(content, /authorPresentationFromElement/u);
   assert.match(content, /normalizedIdentity/u);
+  assert.match(content, /const identityLines = \[\.\.\.root\.querySelectorAll/u);
+  assert.match(content, /lines\.some\(\(text\) => normalizedHandleText\(text\) === normalizedHandleText\(handle\)\)/u);
   assert.match(content, /descriptionCandidates/u);
   assert.match(content, /!node\.closest\('a\[href\]'\)/u);
   assert.match(content, /!node\.querySelector\('div\[dir="auto"\]'\)/u);
@@ -173,6 +175,7 @@ test("Content Inbox 提供上下文感知收件箱、关注作者和素材库 Si
   assert.match(content, /existingSubscription/u);
   assert.match(script, /class="verified-badge article-verified"/u);
   assert.match(script, /aria-label="Verified account"/u);
+  assert.match(css, /\.verified-badge svg \{[^}]*fill: rgb\(29, 155, 240\)/u);
   assert.doesNotMatch(script, /tokenStyle/u);
   assert.match(script, /xIcon/u);
   assert.doesNotMatch(script, /style="\$\{tokenStyle/u);
@@ -194,6 +197,9 @@ test("Content Inbox 提供上下文感知收件箱、关注作者和素材库 Si
   assert.match(content, /x-to-md-article-menu-group/u);
   assert.match(content, /articleMoreButtonFromTarget/u);
   assert.match(content, /articleMoreTriggerState/u);
+  assert.match(content, /const nativeFollowButton = \[\.\.\.document\.querySelectorAll\("button"\)\]/u);
+  assert.match(content, /authorFromFollowButton\(nativeFollowButton, handle\)/u);
+  assert.match(content, /nativeAuthor \|\| authorPresentationFromElement/u);
   assert.match(content, /articleCandidateFromListRoot\(root\)/u);
   assert.match(content, /addEventListener\("pointerdown", handleArticleMoreMenuTrigger/u);
   assert.match(content, /scheduleArticleMoreMenu/u);

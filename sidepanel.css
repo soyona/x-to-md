@@ -97,7 +97,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .author-identity strong { color: var(--twitter-color-text-primary); font-weight: 700; }
 .author-identity span { color: var(--twitter-color-text-secondary); font-weight: 400; }
 .verified-badge { display: inline-flex; width: 18px; height: 18px; margin-left: 2px; vertical-align: -3px; color: var(--twitter-color-brand); }
-.verified-badge svg { width: 100%; height: 100%; fill: currentColor; }
+.verified-badge svg { width: 100%; height: 100%; fill: rgb(29, 155, 240); }
 .author-description { margin: 4px 0 0; color: var(--twitter-color-text-primary); font-size: var(--twitter-font-size-body); line-height: var(--twitter-line-height-body); }
 .follow-button { flex: 0 0 auto; min-width: 99px; min-height: 32px; padding: 0 16px; border: 1px solid var(--twitter-color-border); border-radius: var(--twitter-radius-pill); background: var(--twitter-color-background); color: var(--twitter-color-text-primary); font-size: 14px; font-weight: 700; line-height: 20px; }
 .follow-button .unfollow-label { display: none; }
