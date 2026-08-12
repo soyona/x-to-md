@@ -321,7 +321,9 @@ test("Content Inbox 提供上下文感知收件箱、关注作者和素材库 Si
   assert.doesNotMatch(css, /\.candidate-search/u);
   assert.doesNotMatch(css, /\.asset-search/u);
   assert.match(css, /\.asset-cell \.cell-actions \{ justify-content: flex-end/u);
-  assert.match(css, /\.filter-tab\.is-active \.candidate-date-count/u);
+  assert.match(script, /candidate-date-tabs asset-filter-tabs/u);
+  assert.match(css, /\.asset-filter-tabs \{ margin-top: 8px;/u);
+  assert.doesNotMatch(css, /\.filter-tab/u);
   assert.match(readFileSync(new URL("../sidepanel.css", import.meta.url), "utf8"), /object-fit: contain/u);
   assert.doesNotMatch(script, /state\.data\.assets\.unshift/u);
   assert.match(script, /context-save/u);
