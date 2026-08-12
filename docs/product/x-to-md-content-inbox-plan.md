@@ -4,7 +4,7 @@
 
 - 产品：x-to-md Chrome 扩展
 - 版本方向：Content Inbox / X Article 工作台
-- 状态：产品方案，待实现
+- 状态：产品契约；后续实现以本文的原文提取边界为准
 - 范围：订阅指定作者、手动获取指定时间范围内的 Article、候选集、素材库
 - 不在本期：关键词热门搜索、后台定时监控、X API、自动发布、云端同步
 
@@ -36,6 +36,12 @@
 | Chrome Side Panel | 订阅源、候选集、素材库 |
 
 Side Panel 以当前 X Bookmarks 中栏为候选卡的像素级视觉基准；用户无需离开 X，就能在右侧完成筛选和管理。候选阶段只保存用户加入时 Card 上实际可见的摘要与互动快照，不保存完整 Article 正文；标题点击后打开 X 原文，再由原页面完成真实 DOM 提取。
+
+### 原文提取边界（优先级最高）
+
+`Extract and copy` 只能在 Article 原文 URL（`/status/<id>`、`/<handle>/article/<id>` 或 `/i/article/<id>`）的 Bookmark 或 More 菜单中执行。作者主页 Posts、作者 Articles、Home、Bookmarks 等列表页的 Article Card Bookmark 和 More 只能提供“打开原文后提取”：导航至该 Card 已解析的规范化原文 URL，不读取列表页 DOM、不复制 Markdown、不创建素材。
+
+该规则优先于本文任何可能被理解为列表页可直接提取的旧说明。
 
 ## 4. 核心导航
 
@@ -110,10 +116,10 @@ Side Panel 使用 X 式窄栏信息密度和底部 Tab 导航，提供四个一�
 1. X 式顶栏：返回、`素材库`、搜索图标；
 2. X 风格搜索输入；
 3. Tab：`全部`、`未使用`、`已用于创作`；
-4. Article Cell 列表：标题、作者、保存时间、来源、轻量标签；
-5. 选中后展开 Markdown 摘要；
-6. 操作使用蓝色文本链接：`复制 Markdown`、`打开原文`、`编辑`、`删除`；
-7. 删除需要确认，并说明删除后的可恢复性。
+4. 紧凑 Article 素材行：完整封面缩略图、最多两行标题、作者/handle、发表时间、标签、使用状态与保存时间；
+5. 封面使用 `object-fit: contain`，保留全部视觉信息；历史素材或封面缺失时显示稳定 Article 占位，仅此时最多显示两行已有摘要；
+6. 搜索覆盖标题、作者名、handle、标签与备注；不做全文 Markdown 搜索；
+7. 操作使用蓝色文本链接：`复制 Markdown`、`打开原文`、`编辑`、`删除`；删除需要确认，并说明删除后的可恢复性。
 
 ## 6. 关键交互流程
 
@@ -122,8 +128,8 @@ flowchart LR
   A[X 原文: hover/focus 原生 Follow/Following] --> B[Follow 或 unfollow]
   B --> C[Side Panel: Following]
   C --> D[unfollow]
-  E[X 原文: hover/focus Bookmark] --> F[添加至收件箱或移出收件箱]
-  F --> G[打开 X 原文]
+  E[列表页 Card Bookmark 或 More] --> F[打开规范化 Article 原文]
+  F --> G[原文 Bookmark 或 More]
   G --> H[Extract and copy]
   H --> I[主动保存到素材库]
 ```
@@ -254,12 +260,13 @@ flowchart LR
 - 已关注状态显示 `Following`，悬停/聚焦显示红色 `unfollow`，点击后取消关注；
 - 关注作者页不存在手动添加、详情、编辑、启停、扫描或独立删除入口；
 - 获取结果按 Article URL/ID 去重；
-- Article 卡片或原文的原生 Bookmark 按钮在 hover/focus 时，于其左侧相邻位置显示书签操作，不得遮挡原生 Bookmark；未在收件箱时显示蓝色“添加至收件箱”，已在收件箱时显示实心书签状态并在 hover/focus 切换为红色“从收件箱移除”；移除后可再次添加，`ignored`/`saved` 历史候选会复用并恢复为 `new`，不产生重复 URL，且不会删除素材库；左侧空间不足时回退到右侧；
+- 列表页 Article Card 的 Bookmark 与 More 提供“打开原文后提取”，并导航到该 Card 的规范化 `/status/<id>` 或 `/article/<id>`；它们不得直接执行 `Extract and copy`、读取列表页 DOM、复制 Markdown 或创建素材；
+- 只有原文页 Article 的 Bookmark 与 More 显示 `Extract and copy`。原生 Bookmark hover/focus 时，于其左侧相邻位置显示书签操作，不得遮挡原生 Bookmark；未在收件箱时显示蓝色“添加至收件箱”，已在收件箱时显示实心书签状态并在 hover/focus 切换为红色“从收件箱移除”；移除后可再次添加，`ignored`/`saved` 历史候选会复用并恢复为 `new`，不产生重复 URL，且不会删除素材库；左侧空间不足时回退到右侧；
 - 可以将 Article 加入收件箱、从收件箱移除并再次加入；两个移除入口均写入同一 `ignored` 墓碑状态并从活动统计中排除；
 - 点击候选标题能打开对应 X 原文；
-- 现有 Extract and copy 链路不被破坏；
+- 仅原文页的 Extract and copy 链路可读取 Article DOM，并保留标题、作者、封面、发表时间与摘要；
 - 用户主动保存后素材进入素材库；
-- 素材库支持搜索、编辑标签/备注、复制 Markdown、打开原文和删除。
+- 素材库支持按标题、作者、handle、标签和备注搜索，以及编辑标签/备注、复制 Markdown、打开原文和删除；封面不裁切，旧素材安全降级。
 
 ### 视觉与交互
 

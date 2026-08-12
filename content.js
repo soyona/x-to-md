@@ -68,13 +68,16 @@ function isAuxiliaryArticleBlock(element, sourceHandle = "") {
 
 function articleMetadata(root, sourceHandle, blocks) {
   const title = blocks.find((block) => block.type === "heading" && block.level === 1)?.text || null;
+  const candidate = isArticleSourcePage() ? articleCandidateFromPage() : null;
   return {
-    authorHandle: null,
-    authorName: null,
-    authorAvatarUrl: null,
-    authorVerified: false,
-    publishedAt: null,
-    title,
+    authorHandle: candidate?.authorHandle || null,
+    authorName: candidate?.authorName || null,
+    authorAvatarUrl: candidate?.authorAvatarUrl || null,
+    authorVerified: candidate?.authorVerified || false,
+    coverImageUrl: candidate?.coverImageUrl || "",
+    publishedAt: candidate?.publishedAt || null,
+    previewExcerpt: candidate?.previewExcerpt || "",
+    title: candidate?.title || title,
     metrics: {},
   };
 }
@@ -107,7 +110,7 @@ let articleMoreTriggerState = null;
 let articleMoreMenuObserver = null;
 const runtimeMessageListeners = [];
 const CONTENT_INBOX_STORAGE_KEY = "x-to-md-content-inbox";
-const CONTENT_SCRIPT_REVISION = "article-more-menu-v9";
+const CONTENT_SCRIPT_REVISION = "article-more-menu-v11";
 const contentScriptAbortController = new AbortController();
 const contentScriptEventOptions = { signal: contentScriptAbortController.signal };
 const articleMenuDiagnostics = { revision: CONTENT_SCRIPT_REVISION, stage: "initialized", history: [] };
@@ -255,12 +258,23 @@ function isArticleSourcePage() {
   return /\/(?:status|(?:i\/)?article)\/\d+/u.test(location.pathname);
 }
 
+function canonicalArticleSourceUrl(value = location.href) {
+  const fallback = String(value || "").split(/[?#]/u)[0].replace(/\/$/u, "");
+  try {
+    const url = new URL(value, location.origin);
+    const match = url.pathname.match(/^(\/(?:[^/]+\/status|[^/]+\/article|i\/article)\/\d+)/u);
+    return match ? `${url.origin}${match[1]}` : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 function isArticlesIndexPage() {
   return /^\/[^/]+\/articles\/?$/u.test(location.pathname);
 }
 
 function articleCandidateId(sourceUrl) {
-  return `article_${String(sourceUrl || "").split(/[?#]/u)[0].replace(/\/$/u, "").split("/").pop() || "unknown"}`;
+  return `article_${canonicalArticleSourceUrl(sourceUrl).split("/").pop() || "unknown"}`;
 }
 
 function visibleCountOf(control) {
@@ -305,21 +319,41 @@ function articlePreviewMetadata(root, cardText, title) {
   };
 }
 
+function articleCandidateRootFromPage() {
+  const statusId = /\/status\/(\d+)/u.exec(location.pathname)?.[1];
+  if (statusId) {
+    const statusLink = new RegExp(`/status/${statusId}(?:$|[?#/])`, "u");
+    const tweetRoot = [...document.querySelectorAll('article[data-testid="tweet"]')]
+      .find((root) => [...root.querySelectorAll('a[href]')]
+        .some((link) => statusLink.test(link.getAttribute("href") || "")));
+    if (tweetRoot) return tweetRoot;
+  }
+  return document.querySelector('[data-testid="twitterArticleReadView"], [data-testid="article"], [data-testid="twitterArticleRichTextView"], [data-testid="longformRichTextComponent"], [data-testid="articleBody"]') || findRoot();
+}
+
+function articleCandidateAuthorFromPage(root) {
+  const handle = profileHandleFromHref(location.pathname);
+  if (!handle) return { handle: "", displayName: "", authorAvatarUrl: "", authorVerified: false };
+  return { handle, ...authorPresentationFromElement(root, handle, handle, root) };
+}
+
 function articleCandidateFromPage(author) {
   if (!isArticleSourcePage()) return null;
-  const root = document.querySelector('[data-testid="twitterArticleReadView"], [data-testid="article"], [data-testid="twitterArticleRichTextView"], [data-testid="longformRichTextComponent"], [data-testid="articleBody"]') || findRoot();
+  const root = articleCandidateRootFromPage();
+  const pageAuthor = articleCandidateAuthorFromPage(root);
+  const authorHandle = author?.handle || pageAuthor.handle;
+  const authorName = pageAuthor.displayName || author?.displayName || authorHandle;
   const title = textOf(root?.querySelector('[data-testid="twitter-article-title"], [data-testid="articleTitle"], [data-testid="longformTitle"], h1, [role="heading"]')) || "Untitled Article";
-  const sourceUrl = location.href.split(/[?#]/u)[0];
+  const sourceUrl = canonicalArticleSourceUrl();
   const time = root.querySelector("time");
-  const avatar = root.querySelector('[data-testid="Tweet-User-Avatar"] img, [data-testid="UserAvatar-Container"] img');
   const cover = root.querySelector('[data-testid="article-cover-image"] img') || [...root.querySelectorAll("img")].find(isMediaImage);
   return {
     id: articleCandidateId(sourceUrl),
     sourceUrl,
     title,
-    authorHandle: author?.handle || "",
-    authorName: author?.displayName || "",
-    authorAvatarUrl: avatar?.currentSrc || avatar?.src || "",
+    authorHandle,
+    authorName,
+    authorAvatarUrl: pageAuthor.authorAvatarUrl || author?.authorAvatarUrl || "",
     coverImageUrl: cover ? originalMediaUrl(cover.currentSrc || cover.src) : "",
     publishedAt: time?.getAttribute("datetime") || null,
     status: "new",
@@ -346,7 +380,7 @@ function articleCandidateFromListRoot(root) {
     ? articleLink
     : [...root?.querySelectorAll?.('a[href]') || []].find((candidate) => /\/(?:status|(?:i\/)?article)\/\d+/u.test(candidate.getAttribute("href") || ""));
   if (!link) return null;
-  const sourceUrl = new URL(link.getAttribute("href"), location.origin).toString().split(/[?#]/u)[0];
+  const sourceUrl = canonicalArticleSourceUrl(new URL(link.getAttribute("href"), location.origin).toString());
   const cardText = cover?.nextElementSibling;
   const textNodes = cardText ? [...cardText.querySelectorAll('[dir="auto"]')] : [];
   const titleNode = textNodes[0] || root.querySelector('[data-testid="twitter-article-title"], [data-testid="articleTitle"], [data-testid="longformTitle"]');
@@ -372,7 +406,7 @@ function articleCandidateFromListRoot(root) {
 }
 
 function normalizedSourceUrl(value) {
-  return String(value || "").split(/[?#]/u)[0].replace(/\/$/u, "");
+  return canonicalArticleSourceUrl(value);
 }
 
 function restoreCandidateOverlay() {
@@ -428,8 +462,11 @@ function bookmarkButtonFromTarget(target) {
 }
 
 function articleCandidateFromBookmarkButton(bookmarkButton) {
+  // A detail page owns its candidate identity. Its surrounding X DOM may also
+  // contain related Article/media links, so never infer the page URL from them.
+  if (isArticleSourcePage()) return articleCandidateFromPage();
   const root = bookmarkButton.closest('[data-testid="cellInnerDiv"], article') || articleCardRootFromTarget(bookmarkButton);
-  return articleCandidateFromListRoot(root) || (isArticleSourcePage() ? articleCandidateFromPage() : null);
+  return articleCandidateFromListRoot(root);
 }
 
 function isActiveInboxCandidate(candidate) {
@@ -438,6 +475,12 @@ function isActiveInboxCandidate(candidate) {
 
 function matchesInboxCandidate(candidate, sourceUrl) {
   return normalizedSourceUrl(candidate?.sourceUrl) === normalizedSourceUrl(sourceUrl);
+}
+
+function openArticleForExtraction(candidate) {
+  const sourceUrl = normalizedSourceUrl(candidate?.sourceUrl);
+  if (!sourceUrl) return;
+  location.assign(sourceUrl);
 }
 
 async function addInboxCandidate(candidate) {
@@ -506,8 +549,8 @@ async function showBookmarkCandidateToolbar(bookmarkButton, candidate = articleC
   style.textContent = `
     #x-to-md-bookmark-candidate-toolbar { position: fixed !important; z-index: 2147483647 !important; display: flex !important; align-items: center !important; gap: 4px !important; margin: 0 !important; padding: 0 !important; }
     #x-to-md-bookmark-candidate-toolbar button { display: flex !important; align-items: center !important; justify-content: center !important; box-sizing: border-box !important; width: 32px !important; height: 32px !important; min-width: 32px !important; min-height: 32px !important; margin: 0 !important; padding: 0 !important; border: 0 !important; border-radius: 9999px !important; background: #1D9BF0 !important; color: #FFFFFF !important; cursor: pointer !important; }
-    #x-to-md-bookmark-candidate-toolbar button[data-extract-current] { width: auto !important; padding: 0 14px !important; background: rgb(15, 20, 25) !important; font: 700 14px/20px TwitterChirp, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important; white-space: nowrap !important; }
-    #x-to-md-bookmark-candidate-toolbar button[data-extract-current]:hover, #x-to-md-bookmark-candidate-toolbar button[data-extract-current]:focus-visible { background: rgb(39, 44, 48) !important; }
+    #x-to-md-bookmark-candidate-toolbar button[data-extract-current], #x-to-md-bookmark-candidate-toolbar button[data-open-article] { width: auto !important; padding: 0 14px !important; background: rgb(15, 20, 25) !important; font: 700 14px/20px TwitterChirp, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important; white-space: nowrap !important; }
+    #x-to-md-bookmark-candidate-toolbar button[data-extract-current]:hover, #x-to-md-bookmark-candidate-toolbar button[data-extract-current]:focus-visible, #x-to-md-bookmark-candidate-toolbar button[data-open-article]:hover, #x-to-md-bookmark-candidate-toolbar button[data-open-article]:focus-visible { background: rgb(39, 44, 48) !important; }
     #x-to-md-bookmark-candidate-toolbar button.is-in-inbox { border: 1px solid #1D9BF0 !important; background: rgb(255, 255, 255) !important; color: #1D9BF0 !important; }
     #x-to-md-bookmark-candidate-toolbar button.is-in-inbox:hover,
     #x-to-md-bookmark-candidate-toolbar button.is-in-inbox:focus-visible { border-color: rgb(244, 33, 46) !important; background: rgba(244, 33, 46, .1) !important; color: rgb(244, 33, 46) !important; }
@@ -522,7 +565,7 @@ async function showBookmarkCandidateToolbar(bookmarkButton, candidate = articleC
     : "M4 4.5C4 3.12 5.119 2 6.5 2h11C18.881 2 20 3.12 20 4.5v18.44l-8-5.71-8 5.71V4.5zM6.5 4c-.276 0-.5.22-.5.5v14.56l6-4.29 6 4.29V4.5c0-.28-.224-.5-.5-.5h-11z";
   const extractButton = isArticleSourcePage()
     ? '<button type="button" data-extract-current aria-label="Extract and copy" title="Extract and copy">Extract and copy</button>'
-    : "";
+    : '<button type="button" data-open-article aria-label="打开原文后提取" title="打开原文后提取">打开原文后提取</button>';
   toolbar.innerHTML = `${extractButton}<button class="${isInInbox ? "is-in-inbox" : ""}" type="button" data-toggle-inbox-candidate aria-label="${actionLabel}" title="${actionLabel}" aria-pressed="${isInInbox}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${bookmarkPath}"></path></svg></button>`;
   document.head.append(style);
   document.body.append(toolbar);
@@ -544,6 +587,11 @@ async function showBookmarkCandidateToolbar(bookmarkButton, candidate = articleC
   toolbar.querySelector("[data-extract-current]")?.addEventListener("click", () => {
     removeBookmarkCandidateToolbar();
     createImportPanel();
+  });
+  toolbar.querySelector("[data-open-article]")?.addEventListener("click", () => {
+    const selectedState = bookmarkCandidateState;
+    removeBookmarkCandidateToolbar();
+    openArticleForExtraction(selectedState?.candidate);
   });
 }
 
@@ -729,8 +777,9 @@ function articleMoreButtonFromTarget(target) {
   if (!button) return null;
   let candidate = null;
   try {
+    if (isArticleSourcePage()) return { button, candidate: articleCandidateFromPage() };
     const root = button.closest('[data-testid="cellInnerDiv"], article') || articleCardRootFromTarget(button);
-    candidate = articleCandidateFromListRoot(root) || (isArticleSourcePage() ? articleCandidateFromPage() : null);
+    candidate = articleCandidateFromListRoot(root);
   } catch (error) {
     recordArticleMenuDiagnostic("candidate-read-failed", { message: error?.message || String(error) });
     // Opening the native menu must not depend on optional candidate metadata.
@@ -810,6 +859,8 @@ async function showArticleMoreMenu() {
         else await saveAuthorSubscription(author);
       } else if (action === "extract") {
         createImportPanel();
+      } else if (action === "open-article") {
+        openArticleForExtraction(candidate);
       } else if (isInInbox) {
         await removeInboxCandidate(candidate.sourceUrl);
       } else {
@@ -825,7 +876,7 @@ async function showArticleMoreMenu() {
   };
   group.append(
     actionRow(isFollowing ? "取消关注作者" : "关注作者", nativeMenuIcon(menu, "Follow") || nativeMenuIcon(menu, "Mute"), "follow"),
-    actionRow("Extract and copy", nativeMenuIcon(menu, "Embed Article"), "extract"),
+    actionRow(isArticleSourcePage() ? "Extract and copy" : "打开原文后提取", nativeMenuIcon(menu, "Embed Article"), isArticleSourcePage() ? "extract" : "open-article"),
     actionRow(isInInbox ? "从收件箱移除" : "添加至收件箱", document.querySelector('button[data-testid="bookmark"], button[data-testid="removeBookmark"]')?.querySelector("svg")?.outerHTML || "", "inbox"),
   );
   menu.prepend(group);

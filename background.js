@@ -1,6 +1,13 @@
 (function registerInboxStore() {
   function normalizedSourceUrl(value) {
-    return String(value || "").split(/[?#]/u)[0].replace(/\/$/u, "");
+    const fallback = String(value || "").split(/[?#]/u)[0].replace(/\/$/u, "");
+    try {
+      const url = new URL(value);
+      const match = url.pathname.match(/^(\/(?:[^/]+\/status|[^/]+\/article|i\/article)\/\d+)/u);
+      return match ? `${url.origin}${match[1]}` : fallback;
+    } catch {
+      return fallback;
+    }
   }
 
   function saveCapture(inbox, capture, { id, now } = {}) {
@@ -13,12 +20,24 @@
 
     if (candidate) candidate.status = "saved";
     if (!existing) {
+      const savedMetadata = (key, fallback = "") => {
+        const candidateValue = candidate?.[key];
+        return candidateValue === undefined || candidateValue === null || candidateValue === ""
+          ? (capture?.[key] ?? fallback)
+          : candidateValue;
+      };
       assets.unshift({
         id,
         candidateId: candidate?.id || null,
         sourceUrl,
         title: capture.title || "Untitled Article",
         authorHandle: capture.authorHandle || "",
+        authorName: savedMetadata("authorName"),
+        authorAvatarUrl: savedMetadata("authorAvatarUrl"),
+        authorVerified: savedMetadata("authorVerified", false),
+        coverImageUrl: savedMetadata("coverImageUrl"),
+        publishedAt: savedMetadata("publishedAt", null),
+        previewExcerpt: savedMetadata("previewExcerpt"),
         markdown: capture.content,
         tags: [],
         note: "",
@@ -41,7 +60,7 @@ const X_TAB_URL_PATTERNS = [
   "https://www.twitter.com/*",
 ];
 const CONTENT_INBOX_STORAGE_KEY = "x-to-md-content-inbox";
-const CONTENT_SCRIPT_REVISION = "article-more-menu-v9";
+const CONTENT_SCRIPT_REVISION = "article-more-menu-v11";
 
 function reportContentScriptError(context, error) {
   console.error(`[x-to-md] ${context}`, error);

@@ -7,10 +7,14 @@
 - [ ] 在下一次 X 页面结构变更或功能迭代时，使用真实推文与 Article 人工复核采集、预览和复制链路。
 - [ ] 使用真实 X 推文与 Article 验证 v2 原生预览的像素级视觉一致性。
 - [ ] 在真实 Chrome Side Panel 中人工验收 Content Inbox 写入与素材保存；作者 Articles 页面 DOM 识别已完成实测。
+- [ ] 在真实 Chrome Side Panel 人工验收素材库的封面完整显示、历史占位降级、窄宽可读性，以及从收件箱保存和直接保存的元数据继承。
+- [ ] 在真实 X 的作者主页 Posts、作者 Articles、Home 与 Bookmarks 人工验收：Card Bookmark/More 只导航至对应原文，且只有原文 Bookmark/More 执行 `Extract and copy`。
 - [ ] 在真实 Chrome 中以 600 CSS px、@2x 对照 X Bookmarks 基准验收候选 Card 的默认、红色移除 hover/focus 和移除后补位状态；同时验证窄宽流式收缩、真实互动快照和切换到错误原文时的阻止提示。
 - [ ] 在真实 Chrome 的 Article 帖子操作栏 hover/focus 原生 Bookmark，人工验收“添加至收件箱/从收件箱移除”双态书签的位置、尺寸、destructive hover、实时同步及再次添加；需包含扩展重载前已打开页面点击 Action 后的补注入场景。
 
 ## 已完成
+
+- [x] 重构素材库为可识别的 Article 素材行：保存时保留封面、标题、作者、发表时间与摘要，搜索扩展至作者名和备注，缺少封面时稳定降级。
 
 - [x] 建立独立 Manifest V3 扩展项目与 `main` 分支。
 - [x] 建立当前页面 DOM 采集、一次性预览与 Markdown 复制链路。
@@ -50,3 +54,5 @@
 - [x] 收件箱默认显示今日，支持昨日、日历日期和 X 风格关键词搜索；候选卡直接打开原文并移除冗余的 X 原样预览链路。
 - [x] 收件箱日期筛选统一改为 `addedAt`，补充本周、上周、本月并增加总数与按添加日期聚合的 X 风格折线图。
 - [x] 将 Content Inbox 底部文字导航迁移为 X 风格左侧图标栏，增加中栏页面标题与返回交互，并保留原有视图切换和内容操作契约。
+- [x] 修复详情页 Bookmark 与 More 加入收件箱错误采用相关 Article/media 链接：候选 URL 现在以当前 `/status/<id>` 或 Article 主 URL 为准，并在存储去重时规范化 `/media/<id>` 子路由。
+- [x] 修复详情页加入收件箱后候选 Card 作者元数据缺失：按当前 status ID 锁定 Tweet 根并以页面路径 handle 回退，使 More、状态页 Bookmark 与 Article Bookmark 入口一致写入头像、名称、handle 和可用日期。

@@ -84,7 +84,7 @@ test("Manifest 保持独立运行所需的最小权限", () => {
   assert.match(background, /ensureContentScript/u);
   assert.match(background, /chrome\.scripting\.executeScript/u);
   assert.match(background, /ready\?\.ok && ready\.revision === CONTENT_SCRIPT_REVISION/u);
-  assert.match(background, /CONTENT_SCRIPT_REVISION = "article-more-menu-v9"/u);
+  assert.match(background, /CONTENT_SCRIPT_REVISION = "article-more-menu-v11"/u);
   assert.match(background, /Content script revision mismatch/u);
   assert.match(background, /Service worker initialization failed/u);
   assert.match(background, /reportContentScriptError/u);
@@ -105,8 +105,8 @@ test("后台只向 X/Twitter 页面注入内容脚本", () => {
 
 test("素材只在明确保存后进入素材库并按来源去重", () => {
   const store = inboxStore();
-  const capture = { sourceUrl: "https://x.com/example/status/42?foo=bar", title: "Source title", authorHandle: "@example", content: "# Source title" };
-  const inbox = { candidates: [{ id: "article_42", sourceUrl: "https://x.com/example/status/42", status: "extracted" }], assets: [] };
+  const capture = { sourceUrl: "https://x.com/example/status/42?foo=bar", title: "Source title", authorHandle: "@example", authorName: "Capture author", coverImageUrl: "https://pbs.twimg.com/media/capture.jpg", publishedAt: "2026-08-01T00:00:00.000Z", previewExcerpt: "Capture excerpt", content: "# Source title" };
+  const inbox = { candidates: [{ id: "article_42", sourceUrl: "https://x.com/example/status/42", status: "extracted", authorName: "Candidate author", authorAvatarUrl: "https://pbs.twimg.com/profile_images/avatar.jpg", authorVerified: true, coverImageUrl: "https://pbs.twimg.com/media/candidate.jpg", publishedAt: "2026-08-02T00:00:00.000Z", previewExcerpt: "Candidate excerpt" }], assets: [] };
 
   const saved = store.saveCapture(inbox, capture, { id: "asset_42", now: "2026-08-11T12:00:00.000Z" });
   assert.equal(inbox.assets.length, 0);
@@ -114,11 +114,44 @@ test("素材只在明确保存后进入素材库并按来源去重", () => {
   assert.equal(saved.inbox.assets.length, 1);
   assert.equal(saved.inbox.assets[0].candidateId, "article_42");
   assert.equal(saved.inbox.assets[0].usageStatus, "unused");
+  assert.equal(saved.inbox.assets[0].authorName, "Candidate author");
+  assert.equal(saved.inbox.assets[0].coverImageUrl, "https://pbs.twimg.com/media/candidate.jpg");
+  assert.equal(saved.inbox.assets[0].publishedAt, "2026-08-02T00:00:00.000Z");
+  assert.equal(saved.inbox.assets[0].previewExcerpt, "Candidate excerpt");
   assert.equal(saved.inbox.candidates[0].status, "saved");
 
   const repeated = store.saveCapture(saved.inbox, capture, { id: "asset_duplicate", now: "2026-08-11T12:01:00.000Z" });
   assert.equal(repeated.existing, true);
   assert.equal(repeated.inbox.assets.length, 1);
+});
+
+test("直接保存的 Article 使用用户主动提取的展示元数据", () => {
+  const store = inboxStore();
+  const capture = { sourceUrl: "https://x.com/example/article/84", title: "Direct title", authorHandle: "@example", authorName: "Direct author", authorAvatarUrl: "https://pbs.twimg.com/profile_images/direct.jpg", authorVerified: true, coverImageUrl: "https://pbs.twimg.com/media/direct.jpg", publishedAt: "2026-08-03T00:00:00.000Z", previewExcerpt: "Direct excerpt", content: "# Direct title" };
+  const saved = store.saveCapture({ candidates: [], assets: [] }, capture, { id: "asset_84", now: "2026-08-11T12:00:00.000Z" });
+
+  const asset = saved.inbox.assets[0];
+  assert.equal(asset.candidateId, null);
+  assert.equal(asset.authorName, "Direct author");
+  assert.equal(asset.authorAvatarUrl, "https://pbs.twimg.com/profile_images/direct.jpg");
+  assert.equal(asset.authorVerified, true);
+  assert.equal(asset.coverImageUrl, "https://pbs.twimg.com/media/direct.jpg");
+  assert.equal(asset.publishedAt, "2026-08-03T00:00:00.000Z");
+  assert.equal(asset.previewExcerpt, "Direct excerpt");
+  assert.equal(asset.markdown, "# Direct title");
+});
+
+test("收件箱来源 URL 以内容页为准并剥离 media 子路由", () => {
+  const store = inboxStore();
+
+  assert.equal(
+    store.normalizedSourceUrl("https://x.com/AnatoliKopadze/status/2049492553133629950?ref=share"),
+    "https://x.com/AnatoliKopadze/status/2049492553133629950",
+  );
+  assert.equal(
+    store.normalizedSourceUrl("https://x.com/KKaWSB/article/2087333705853649186/media/2087333606771601408"),
+    "https://x.com/KKaWSB/article/2087333705853649186",
+  );
 });
 
 test("Content Inbox 提供上下文感知收件箱、关注作者和素材库 Side Panel", () => {
@@ -208,7 +241,7 @@ test("Content Inbox 提供上下文感知收件箱、关注作者和素材库 Si
   assert.match(content, /setTimeout\(injectWhenReady, 50\)/u);
   assert.match(content, /\(\?:Follow\|Unfollow\)/u);
   assert.match(content, /revision: CONTENT_SCRIPT_REVISION/u);
-  assert.match(content, /CONTENT_SCRIPT_REVISION = "article-more-menu-v9"/u);
+  assert.match(content, /CONTENT_SCRIPT_REVISION = "article-more-menu-v11"/u);
   assert.match(content, /reconcileArticleMoreMenu/u);
   assert.match(content, /articleMoreMenuObserver\.observe\(menu, \{ childList: true \}\)/u);
   assert.match(content, /button\[data-testid="caret"\]\[aria-haspopup="menu"\]/u);
@@ -263,6 +296,11 @@ test("Content Inbox 提供上下文感知收件箱、关注作者和素材库 Si
   assert.match(script, /复制 Markdown/u);
   assert.match(script, /保存并复制 Markdown/u);
   assert.match(script, /save-capture-to-library/u);
+  assert.match(script, /asset\.authorName/u);
+  assert.match(script, /asset-cover-placeholder/u);
+  assert.match(script, /asset\.previewExcerpt/u);
+  assert.match(script, /asset\.note/u);
+  assert.match(readFileSync(new URL("../sidepanel.css", import.meta.url), "utf8"), /object-fit: contain/u);
   assert.doesNotMatch(script, /state\.data\.assets\.unshift/u);
   assert.match(script, /context-save/u);
   assert.doesNotMatch(script, /context-scan/u);
@@ -326,6 +364,10 @@ test("Popup 与预览页保留清晰的成功、边界和来源反馈", () => {
   assert.doesNotMatch(contentScript, /message\?\.type !== "open-native-preview"/u);
   assert.match(contentScript, /toggle-import-panel/u);
   assert.match(contentScript, /data-extract-current/u);
+  assert.match(contentScript, /data-open-article/u);
+  assert.match(contentScript, /function openArticleForExtraction\(candidate\)/u);
+  assert.match(contentScript, /location\.assign\(sourceUrl\)/u);
+  assert.match(contentScript, /isArticleSourcePage\(\) \? "Extract and copy" : "打开原文后提取"/u);
   assert.match(contentScript, /isArticleSourcePage\(\)\n    \? '<button/u);
   assert.match(contentScript, /Save to library/u);
   assert.match(contentScript, /open-side-panel/u);
@@ -350,6 +392,15 @@ test("Popup 与预览页保留清晰的成功、边界和来源反馈", () => {
   assert.match(contentScript, /isArticleSourcePage/u);
   assert.match(contentScript, /articleCandidateFromPage\(\)/u);
   assert.match(contentScript, /articleCandidateFromBookmarkButton/u);
+  assert.match(contentScript, /if \(isArticleSourcePage\(\)\) return articleCandidateFromPage\(\);/u);
+  assert.match(contentScript, /canonicalArticleSourceUrl/u);
+  assert.match(contentScript, /function articleCandidateRootFromPage\(\)/u);
+  assert.match(contentScript, /article\[data-testid="tweet"\]/u);
+  assert.match(contentScript, /function articleCandidateAuthorFromPage\(root\)/u);
+  assert.match(contentScript, /authorAvatarUrl: pageAuthor\.authorAvatarUrl \|\| author\?\.authorAvatarUrl \|\| ""/u);
+  assert.match(contentScript, /const candidate = isArticleSourcePage\(\) \? articleCandidateFromPage\(\) : null;/u);
+  assert.match(contentScript, /coverImageUrl: candidate\?\.coverImageUrl \|\| ""/u);
+  assert.match(contentScript, /previewExcerpt: candidate\?\.previewExcerpt \|\| ""/u);
   assert.match(contentScript, /button\[data-testid="bookmark"\]/u);
   assert.match(contentScript, /button\[data-testid="removeBookmark"\]/u);
   assert.match(contentScript, /cover\?\.querySelector\("img"\)/u);
