@@ -99,8 +99,6 @@ function originalMediaUrl(value) {
 
 let importPanelState = null;
 let candidateOverlayState = null;
-let bookmarkCandidateState = null;
-let bookmarkCandidateHideTimer = null;
 let followSubscriptionState = null;
 let followSubscriptionHideTimer = null;
 let articleMoreMenuState = null;
@@ -110,7 +108,7 @@ let articleMoreTriggerState = null;
 let articleMoreMenuObserver = null;
 const runtimeMessageListeners = [];
 const CONTENT_INBOX_STORAGE_KEY = "x-to-md-content-inbox";
-const CONTENT_SCRIPT_REVISION = "article-more-menu-v11";
+const CONTENT_SCRIPT_REVISION = "article-more-menu-v20";
 const contentScriptAbortController = new AbortController();
 const contentScriptEventOptions = { signal: contentScriptAbortController.signal };
 const articleMenuDiagnostics = { revision: CONTENT_SCRIPT_REVISION, stage: "initialized", history: [] };
@@ -124,8 +122,18 @@ function recordArticleMenuDiagnostic(stage, detail = {}) {
 
 function reportArticleMenuError(error) {
   recordArticleMenuDiagnostic("error", { message: error?.message || String(error) });
-  console.error("[x-to-md] Could not inject Article menu.", error);
+  if (!/Extension context invalidated|Cannot read properties of undefined \(reading 'local'\)/u.test(error?.message || String(error))) {
+    console.error("[x-to-md] Could not inject Article menu.", error);
+  }
   removeArticleMoreMenu();
+}
+
+function hasExtensionStorage() {
+  try {
+    return Boolean(globalThis.chrome?.runtime?.id && globalThis.chrome?.storage?.local);
+  } catch {
+    return false;
+  }
 }
 
 function disposeContentScript() {
@@ -143,7 +151,6 @@ function disposeContentScript() {
   articleMoreMenuObserver = null;
   if (articleMoreMenuRetryTimer) window.clearTimeout(articleMoreMenuRetryTimer);
   articleMoreMenuRetryTimer = null;
-  removeBookmarkCandidateToolbar();
   removeFollowSubscriptionToolbar();
   removeArticleMoreMenu();
   removeImportPanel();
@@ -456,19 +463,6 @@ async function toggleCandidateOverlay() {
   return { ok: true, open: true, visible: visibleCandidates.length, total: candidateUrls.size };
 }
 
-function bookmarkButtonFromTarget(target) {
-  const button = target?.closest?.('button[data-testid="bookmark"], button[data-testid="removeBookmark"]');
-  return button?.closest?.("#x-to-md-bookmark-candidate-toolbar") ? null : button;
-}
-
-function articleCandidateFromBookmarkButton(bookmarkButton) {
-  // A detail page owns its candidate identity. Its surrounding X DOM may also
-  // contain related Article/media links, so never infer the page URL from them.
-  if (isArticleSourcePage()) return articleCandidateFromPage();
-  const root = bookmarkButton.closest('[data-testid="cellInnerDiv"], article') || articleCardRootFromTarget(bookmarkButton);
-  return articleCandidateFromListRoot(root);
-}
-
 function isActiveInboxCandidate(candidate) {
   return candidate && !["ignored", "saved"].includes(candidate.status);
 }
@@ -477,10 +471,75 @@ function matchesInboxCandidate(candidate, sourceUrl) {
   return normalizedSourceUrl(candidate?.sourceUrl) === normalizedSourceUrl(sourceUrl);
 }
 
+function matchesLibraryAsset(asset, sourceUrl) {
+  return normalizedSourceUrl(asset?.sourceUrl) === normalizedSourceUrl(sourceUrl);
+}
+
 function openArticleForExtraction(candidate) {
   const sourceUrl = normalizedSourceUrl(candidate?.sourceUrl);
   if (!sourceUrl) return;
   location.assign(sourceUrl);
+}
+
+function showPageToast(message, action = null) {
+  document.querySelector("#x-to-md-page-toast")?.remove();
+  const toast = document.createElement("div");
+  toast.id = "x-to-md-page-toast";
+  toast.setAttribute("role", "status");
+  toast.setAttribute("aria-live", "polite");
+  toast.append(document.createTextNode(message));
+  if (action?.label) {
+    const link = document.createElement("button");
+    link.type = "button";
+    link.textContent = action.label;
+    link.style.cssText = "margin: 0 0 0 4px !important; padding: 0 !important; border: 0 !important; background: transparent !important; color: #1d9bf0 !important; font: inherit !important; text-decoration: underline !important; cursor: pointer !important;";
+    link.addEventListener("click", () => {
+      chrome.runtime.sendMessage({ type: "open-side-panel", view: action.view }).catch(() => {});
+      toast.remove();
+    });
+    toast.append(link);
+  }
+  toast.style.cssText = "position: fixed !important; z-index: 2147483647 !important; right: 24px !important; bottom: 24px !important; max-width: calc(100vw - 48px) !important; padding: 12px 16px !important; border-radius: 9999px !important; background: rgb(15, 20, 25) !important; color: #fff !important; box-shadow: 0 4px 12px rgba(15, 20, 25, .2) !important; font: 700 14px/20px TwitterChirp, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif !important;";
+  document.body.append(toast);
+  window.setTimeout(() => toast.remove(), 3200);
+}
+
+async function extractAndCopyCurrentPage() {
+  const capture = await capturePage();
+  await navigator.clipboard.writeText(capture.content);
+  chrome.runtime.sendMessage({ type: "capture-completed", sourceUrl: capture.sourceUrl }).catch(() => {});
+  showPageToast("Copied to clipboard");
+}
+
+async function previewCurrentPageMarkdown() {
+  const capture = await capturePage();
+  const result = await chrome.runtime.sendMessage({ type: "open-markdown-preview", capture });
+  if (result?.error) throw new Error(result.error);
+}
+
+async function copyCurrentPageText() {
+  const capture = await capturePage();
+  const plainText = (capture.blocks || [])
+    .filter((block) => block.type !== "image")
+    .map((block) => block.text || block.altText || "")
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
+  await navigator.clipboard.writeText(plainText || capture.content || "");
+  showPageToast("文本已复制");
+}
+
+async function saveCurrentPageToLibrary() {
+  const capture = await capturePage();
+  const result = await chrome.runtime.sendMessage({ type: "save-capture-to-library", capture });
+  if (result?.error) throw new Error(result.error);
+  showPageToast(result?.existing ? "已加入，请查看 " : "已加入，请查看 ", { label: "素材库", view: "assets" });
+}
+
+async function removeCurrentPageFromLibrary(sourceUrl) {
+  const result = await chrome.runtime.sendMessage({ type: "remove-capture-from-library", sourceUrl });
+  if (result?.error) throw new Error(result.error);
+  showPageToast("已移除，请查看 ", { label: "素材库", view: "assets" });
 }
 
 async function addInboxCandidate(candidate) {
@@ -496,6 +555,7 @@ async function addInboxCandidate(candidate) {
     candidates.push({ ...candidate, status: "new", addedAt });
   }
   await chrome.storage.local.set({ [CONTENT_INBOX_STORAGE_KEY]: { ...inbox, candidates } });
+  showPageToast("已加入，请查看 ", { label: "候选集", view: "candidates" });
 }
 
 async function removeInboxCandidate(sourceUrl) {
@@ -505,103 +565,11 @@ async function removeInboxCandidate(sourceUrl) {
   const candidate = candidates.find((item) => matchesInboxCandidate(item, sourceUrl) && isActiveInboxCandidate(item));
   if (candidate) candidate.status = "ignored";
   await chrome.storage.local.set({ [CONTENT_INBOX_STORAGE_KEY]: { ...inbox, candidates } });
-}
-
-function removeBookmarkCandidateToolbar() {
-  if (bookmarkCandidateHideTimer) window.clearTimeout(bookmarkCandidateHideTimer);
-  bookmarkCandidateHideTimer = null;
-  document.querySelector("#x-to-md-bookmark-candidate-toolbar")?.remove();
-  document.querySelector("#x-to-md-bookmark-candidate-style")?.remove();
-  bookmarkCandidateState = null;
-}
-
-function scheduleRemoveBookmarkCandidateToolbar() {
-  if (bookmarkCandidateHideTimer) window.clearTimeout(bookmarkCandidateHideTimer);
-  bookmarkCandidateHideTimer = window.setTimeout(removeBookmarkCandidateToolbar, 180);
+  showPageToast("已移除，请查看 ", { label: "候选集", view: "candidates" });
 }
 
 function isWithinAnchorOrToolbar(target, anchor, toolbarSelector) {
   return Boolean(target?.closest?.(toolbarSelector) || (target instanceof Node && anchor?.contains(target)));
-}
-
-function positionBookmarkCandidateToolbar(toolbar, bookmarkButton) {
-  if (!toolbar.isConnected || !bookmarkButton.isConnected) return;
-  const rect = bookmarkButton.getBoundingClientRect();
-  const toolbarRect = toolbar.getBoundingClientRect();
-  const gap = 8;
-  const left = rect.left - toolbarRect.width - gap;
-  const fallbackLeft = Math.min(window.innerWidth - toolbarRect.width - gap, rect.right + gap);
-  toolbar.style.left = `${left >= gap ? left : fallbackLeft}px`;
-  toolbar.style.top = `${rect.top + (rect.height - toolbarRect.height) / 2}px`;
-}
-
-async function showBookmarkCandidateToolbar(bookmarkButton, candidate = articleCandidateFromBookmarkButton(bookmarkButton)) {
-  if (!candidate) return;
-  removeFollowSubscriptionToolbar();
-  removeBookmarkCandidateToolbar();
-  bookmarkCandidateState = { bookmarkButton, candidate, toolbar: null, isInInbox: false };
-  const stored = await chrome.storage.local.get(CONTENT_INBOX_STORAGE_KEY);
-  if (bookmarkCandidateState?.bookmarkButton !== bookmarkButton || !bookmarkButton.isConnected) return;
-  const isInInbox = (stored[CONTENT_INBOX_STORAGE_KEY]?.candidates || [])
-    .some((item) => matchesInboxCandidate(item, candidate.sourceUrl) && isActiveInboxCandidate(item));
-  const style = document.createElement("style");
-  style.id = "x-to-md-bookmark-candidate-style";
-  style.textContent = `
-    #x-to-md-bookmark-candidate-toolbar { position: fixed !important; z-index: 2147483647 !important; display: flex !important; align-items: center !important; gap: 4px !important; margin: 0 !important; padding: 0 !important; }
-    #x-to-md-bookmark-candidate-toolbar button { display: flex !important; align-items: center !important; justify-content: center !important; box-sizing: border-box !important; width: 32px !important; height: 32px !important; min-width: 32px !important; min-height: 32px !important; margin: 0 !important; padding: 0 !important; border: 0 !important; border-radius: 9999px !important; background: #1D9BF0 !important; color: #FFFFFF !important; cursor: pointer !important; }
-    #x-to-md-bookmark-candidate-toolbar button[data-extract-current], #x-to-md-bookmark-candidate-toolbar button[data-open-article] { width: auto !important; padding: 0 14px !important; background: rgb(15, 20, 25) !important; font: 700 14px/20px TwitterChirp, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important; white-space: nowrap !important; }
-    #x-to-md-bookmark-candidate-toolbar button[data-extract-current]:hover, #x-to-md-bookmark-candidate-toolbar button[data-extract-current]:focus-visible, #x-to-md-bookmark-candidate-toolbar button[data-open-article]:hover, #x-to-md-bookmark-candidate-toolbar button[data-open-article]:focus-visible { background: rgb(39, 44, 48) !important; }
-    #x-to-md-bookmark-candidate-toolbar button.is-in-inbox { border: 1px solid #1D9BF0 !important; background: rgb(255, 255, 255) !important; color: #1D9BF0 !important; }
-    #x-to-md-bookmark-candidate-toolbar button.is-in-inbox:hover,
-    #x-to-md-bookmark-candidate-toolbar button.is-in-inbox:focus-visible { border-color: rgb(244, 33, 46) !important; background: rgba(244, 33, 46, .1) !important; color: rgb(244, 33, 46) !important; }
-    #x-to-md-bookmark-candidate-toolbar svg { display: block !important; width: 18.75px !important; height: 18.75px !important; fill: currentColor !important; }
-  `;
-  const toolbar = document.createElement("aside");
-  toolbar.id = "x-to-md-bookmark-candidate-toolbar";
-  toolbar.setAttribute("aria-label", "Article 操作");
-  const actionLabel = isInInbox ? "从收件箱移除" : "添加至收件箱";
-  const bookmarkPath = isInInbox
-    ? "M4 4.5C4 3.12 5.119 2 6.5 2h11C18.881 2 20 3.12 20 4.5v18.44l-8-5.71-8 5.71V4.5z"
-    : "M4 4.5C4 3.12 5.119 2 6.5 2h11C18.881 2 20 3.12 20 4.5v18.44l-8-5.71-8 5.71V4.5zM6.5 4c-.276 0-.5.22-.5.5v14.56l6-4.29 6 4.29V4.5c0-.28-.224-.5-.5-.5h-11z";
-  const extractButton = isArticleSourcePage()
-    ? '<button type="button" data-extract-current aria-label="Extract and copy" title="Extract and copy">Extract and copy</button>'
-    : '<button type="button" data-open-article aria-label="打开原文后提取" title="打开原文后提取">打开原文后提取</button>';
-  toolbar.innerHTML = `${extractButton}<button class="${isInInbox ? "is-in-inbox" : ""}" type="button" data-toggle-inbox-candidate aria-label="${actionLabel}" title="${actionLabel}" aria-pressed="${isInInbox}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${bookmarkPath}"></path></svg></button>`;
-  document.head.append(style);
-  document.body.append(toolbar);
-  bookmarkCandidateState = { bookmarkButton, candidate, toolbar, isInInbox };
-  positionBookmarkCandidateToolbar(toolbar, bookmarkButton);
-  toolbar.addEventListener("mousedown", (event) => event.preventDefault());
-  toolbar.addEventListener("pointerenter", () => {
-    if (bookmarkCandidateHideTimer) window.clearTimeout(bookmarkCandidateHideTimer);
-    bookmarkCandidateHideTimer = null;
-  });
-  toolbar.addEventListener("pointerleave", scheduleRemoveBookmarkCandidateToolbar);
-  toolbar.querySelector("[data-toggle-inbox-candidate]")?.addEventListener("click", async () => {
-    const selectedState = bookmarkCandidateState;
-    if (!selectedState?.candidate) return;
-    if (selectedState.isInInbox) await removeInboxCandidate(selectedState.candidate.sourceUrl);
-    else await addInboxCandidate(selectedState.candidate);
-    removeBookmarkCandidateToolbar();
-  });
-  toolbar.querySelector("[data-extract-current]")?.addEventListener("click", () => {
-    removeBookmarkCandidateToolbar();
-    createImportPanel();
-  });
-  toolbar.querySelector("[data-open-article]")?.addEventListener("click", () => {
-    const selectedState = bookmarkCandidateState;
-    removeBookmarkCandidateToolbar();
-    openArticleForExtraction(selectedState?.candidate);
-  });
-}
-
-function handleBookmarkButtonEntry(target) {
-  const bookmarkButton = bookmarkButtonFromTarget(target);
-  if (!bookmarkButton) return;
-  if (bookmarkCandidateHideTimer) window.clearTimeout(bookmarkCandidateHideTimer);
-  bookmarkCandidateHideTimer = null;
-  if (bookmarkCandidateState?.bookmarkButton === bookmarkButton) return;
-  showBookmarkCandidateToolbar(bookmarkButton).catch(removeBookmarkCandidateToolbar);
 }
 
 function removeFollowSubscriptionToolbar() {
@@ -637,6 +605,7 @@ async function saveAuthorSubscription(author) {
   if (existingSubscription) Object.assign(existingSubscription, authorMetadata);
   else subscriptions.push({ id: `sub_${crypto.randomUUID?.() || Date.now()}`, handle: author.handle, addedAt: new Date().toISOString(), ...authorMetadata });
   await chrome.storage.local.set({ [CONTENT_INBOX_STORAGE_KEY]: { ...inbox, subscriptions } });
+  showPageToast("已加入，请查看 ", { label: "关注", view: "subscriptions" });
 }
 
 async function removeAuthorSubscription(handle) {
@@ -645,6 +614,7 @@ async function removeAuthorSubscription(handle) {
   const subscriptions = (inbox.subscriptions || [])
     .filter((subscription) => subscription.handle?.toLowerCase() !== handle.toLowerCase());
   await chrome.storage.local.set({ [CONTENT_INBOX_STORAGE_KEY]: { ...inbox, subscriptions } });
+  showPageToast("已移除，请查看 ", { label: "关注", view: "subscriptions" });
 }
 
 async function showFollowSubscriptionToolbar(followButton, author) {
@@ -743,6 +713,50 @@ function nativeMenuIcon(menu, label) {
     ?.querySelector("svg")?.outerHTML || "";
 }
 
+function nativeFollowMenuIcon(menu, isFollowing) {
+  const labels = isFollowing ? ["Unfollow", "Following"] : ["Follow"];
+  return [...menu.querySelectorAll('[role="menuitem"]')]
+    .find((item) => labels.some((label) => new RegExp(`^${label}(?:\\s+@[a-z0-9_]{1,15})?$`, "iu").test(textOf(item))))
+    ?.querySelector("svg")?.outerHTML || "";
+}
+
+function followPersonIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4c-1.105 0-2 .9-2 2s.895 2 2 2 2-.9 2-2-.895-2-2-2zM6 6c0-2.21 1.791-4 4-4s4 1.79 4 4-1.791 4-4 4-4-1.79-4-4zm13 4v3h2v-3h3V8h-3V5h-2v3h-3v2h3zM3.651 19h12.698c-.337-1.8-1.023-3.21-1.945-4.19C13.318 13.65 11.838 13 10 13s-3.317.65-4.404 1.81c-.922.98-1.608 2.39-1.945 4.19zm.486-5.56C5.627 11.85 7.648 11 10 11s4.373.85 5.863 2.44c1.477 1.58 2.366 3.8 2.632 6.46l.11 1.1H1.395l.11-1.1c.266-2.66 1.155-4.88 2.632-6.46z"></path></svg>';
+}
+
+function unfollowPersonIconLegacy() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4c-1.105 0-2 .9-2 2s.895 2 2 2 2-.9 2-2-.895-2-2-2zM6 6c0-2.21 1.791-4 4-4s4 1.79 4 4-1.791 4-4 4-4-1.79-4-4zm12.586 3l-2.043-2.04 1.414-1.42L20 7.59l2.043-2.05-1.414-1.42L18.586 9zM3.651 19h12.698c-.337-1.8-1.023-3.21-1.945-4.19C13.318 13.65 11.838 13 10 13s-3.317.65-4.404 1.81c-.922.98-1.608 2.39-1.945 4.19zm.486-5.56C5.627 11.85 7.648 11 10 11s4.373.85-4 4.373-4.373.85-5.863 2.44c-1.477 1.58-2.366 3.8-2.632 6.46l-.11 1.1H1.395l.11-1.1c.266-2.66 1.155-4.88 2.632-6.46z"></path></svg>';
+}
+
+function unfollowPersonIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4c-1.105 0-2 .9-2 2s.895 2 2 2 2-.9 2-2-.895-2-2-2zM6 6c0-2.21 1.791-4 4-4s4 1.79 4 4-1.791 4-4 4-4-1.79-4-4zm12.586 3l-2.043-2.04 1.414-1.42L20 7.59l2.043-2.05-1.414-1.42L18.586 9zM3.651 19h12.698c-.337-1.8-1.023-3.21-1.945-4.19C13.318 13.65 11.838 13 10 13s-3.317.65-4.404 1.81c-.922.98-1.608 2.39-1.945 4.19zm.486-5.56C5.627 11.85 7.648 11 10 11s4.373.85 5.863 2.44c1.477 1.58 2.366 3.8 2.632 6.46l.11 1.1H1.395l.11-1.1c.266-2.66 1.155-4.88 2.632-6.46z"></path></svg>';
+}
+
+function setMenuRowIcon(row, icon) {
+  const svg = document.createRange().createContextualFragment(icon).firstElementChild;
+  if (!svg) return;
+  row.querySelectorAll("svg").forEach((existing) => existing.remove());
+  const iconSlot = document.createElement("span");
+  iconSlot.className = "x-to-md-menu-icon";
+  iconSlot.setAttribute("aria-hidden", "true");
+  iconSlot.style.cssText = "display: flex !important; width: 24px !important; height: 24px !important; min-width: 24px !important; min-height: 24px !important; margin-right: 12px !important; align-items: center !important; justify-content: center !important; color: currentColor !important;";
+  svg.style.cssText = "display: block !important; width: 24px !important; height: 24px !important; fill: currentColor !important; color: currentColor !important;";
+  iconSlot.append(svg);
+  row.prepend(iconSlot);
+}
+
+function candidateTrayIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 5.5h17l-2 12.5H5.5L3.5 5.5zm2.7 2 1.1 7h9.4l1.1-7H6.2zM8 3h8v2H8z"></path><path d="M9 11h6v2H9z"></path></svg>';
+}
+
+function libraryBookmarkIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3.5A2.5 2.5 0 0 1 7.5 1h9A2.5 2.5 0 0 1 19 3.5V23l-7-4.5L5 23V3.5zm2.5 0v15.85l4.5-2.9 4.5 2.9V3.5a.5.5 0 0 0-.5-.5h-9a.5.5 0 0 0-.5.5z"></path></svg>';
+}
+
+function copyTextIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3.5h10A2.5 2.5 0 0 1 19.5 6v12A2.5 2.5 0 0 1 17 20.5H7A2.5 2.5 0 0 1 4.5 18V6A2.5 2.5 0 0 1 7 3.5zm0 2a.5.5 0 0 0-.5.5v12a.5.5 0 0 0 .5.5h10a.5.5 0 0 0 .5-.5V6a.5.5 0 0 0-.5-.5H7z"></path><path d="M8 8h8v1.75H8zm0 3.5h8v1.75H8zm0 3.5h5v1.75H8z"></path></svg>';
+}
+
 function articleMenuAuthor(menu) {
   const followItemText = [...menu.querySelectorAll(':scope > [role="menuitem"]')]
     .map(textOf)
@@ -807,6 +821,7 @@ function scheduleArticleMoreMenu() {
 }
 
 async function showArticleMoreMenu() {
+  if (!hasExtensionStorage()) return;
   const menu = visibleNativeMenu();
   if (!menu || (articleMoreMenuState?.menu === menu && articleMoreMenuState.group.isConnected)) return;
   if (articleMoreMenuPending === menu) return;
@@ -838,16 +853,21 @@ async function showArticleMoreMenu() {
   const inbox = stored[CONTENT_INBOX_STORAGE_KEY] || {};
   const isFollowing = (inbox.subscriptions || []).some((item) => item.handle?.toLowerCase() === author.handle.toLowerCase());
   const isInInbox = (inbox.candidates || []).some((item) => matchesInboxCandidate(item, candidate.sourceUrl) && isActiveInboxCandidate(item));
+  const isInLibrary = (inbox.assets || []).some((item) => matchesLibraryAsset(item, candidate.sourceUrl));
+  const isSourcePage = isArticleSourcePage();
   const group = document.createElement("div");
   group.id = "x-to-md-article-menu-group";
   group.setAttribute("aria-label", "x-to-md Article 操作");
   group.style.cssText = "border-bottom: 1px solid rgb(239, 243, 244);";
+  const hoverStyle = document.createElement("style");
+  hoverStyle.textContent = `#x-to-md-article-menu-group [data-x-to-md-action] { border-radius: 4px !important; } #x-to-md-article-menu-group [data-x-to-md-action]:hover, #x-to-md-article-menu-group [data-x-to-md-action]:focus-visible { background: rgb(232, 245, 253) !important; }`;
+  group.append(hoverStyle);
   const actionRow = (label, icon, action) => {
     const template = [...menu.querySelectorAll(':scope > [role="menuitem"]')]
       .find((item) => textOf(item) === "Embed Article") || menu.querySelector(':scope > [role="menuitem"]');
     const row = template.cloneNode(true);
     row.dataset.xToMdAction = action;
-    row.querySelector("svg")?.replaceWith(document.createRange().createContextualFragment(icon).firstElementChild || document.createElement("span"));
+    setMenuRowIcon(row, icon);
     const labelSlot = [...row.querySelectorAll("span, div")]
       .filter((element) => textOf(element) === "Embed Article")
       .at(-1);
@@ -858,9 +878,12 @@ async function showArticleMoreMenu() {
         if (isFollowing) await removeAuthorSubscription(author.handle);
         else await saveAuthorSubscription(author);
       } else if (action === "extract") {
-        createImportPanel();
-      } else if (action === "open-article") {
-        openArticleForExtraction(candidate);
+        await previewCurrentPageMarkdown();
+      } else if (action === "copy-text") {
+        await copyCurrentPageText();
+      } else if (action === "library") {
+        if (isInLibrary) await removeCurrentPageFromLibrary(candidate.sourceUrl);
+        else await saveCurrentPageToLibrary();
       } else if (isInInbox) {
         await removeInboxCandidate(candidate.sourceUrl);
       } else {
@@ -875,9 +898,14 @@ async function showArticleMoreMenu() {
     return row;
   };
   group.append(
-    actionRow(isFollowing ? "取消关注作者" : "关注作者", nativeMenuIcon(menu, "Follow") || nativeMenuIcon(menu, "Mute"), "follow"),
-    actionRow(isArticleSourcePage() ? "Extract and copy" : "打开原文后提取", nativeMenuIcon(menu, "Embed Article"), isArticleSourcePage() ? "extract" : "open-article"),
-    actionRow(isInInbox ? "从收件箱移除" : "添加至收件箱", document.querySelector('button[data-testid="bookmark"], button[data-testid="removeBookmark"]')?.querySelector("svg")?.outerHTML || "", "inbox"),
+    actionRow(isFollowing ? "取消关注" : "关注", isFollowing ? unfollowPersonIcon() : followPersonIcon(), "follow"),
+    ...(isSourcePage ? [
+      actionRow("预览/复制 Markdown", nativeMenuIcon(menu, "Embed Article"), "extract"),
+      actionRow("复制文本", copyTextIcon(), "copy-text"),
+      actionRow(isInLibrary ? "从素材库移除" : "加入素材库", libraryBookmarkIcon(), "library"),
+    ] : [
+      actionRow(isInInbox ? "从候选集移除" : "加入候选集", candidateTrayIcon(), "inbox"),
+    ]),
   );
   menu.prepend(group);
   articleMoreMenuState = { menu, group };
@@ -886,22 +914,16 @@ async function showArticleMoreMenu() {
 }
 
 document.addEventListener("pointerover", (event) => {
-  handleBookmarkButtonEntry(event.target);
   handleFollowButtonEntry(event.target);
 }, contentScriptEventOptions);
 document.addEventListener("focusin", (event) => {
-  handleBookmarkButtonEntry(event.target);
   handleFollowButtonEntry(event.target);
 }, contentScriptEventOptions);
 document.addEventListener("pointerout", (event) => {
-  const anchoredBookmark = event.target?.closest?.("button") === bookmarkCandidateState?.bookmarkButton;
-  if (anchoredBookmark && !isWithinAnchorOrToolbar(event.relatedTarget, bookmarkCandidateState?.bookmarkButton, "#x-to-md-bookmark-candidate-toolbar")) scheduleRemoveBookmarkCandidateToolbar();
   const anchoredButton = event.target?.closest?.("button") === followSubscriptionState?.followButton;
   if (anchoredButton && !isWithinAnchorOrToolbar(event.relatedTarget, followSubscriptionState?.followButton, "#x-to-md-follow-subscription-toolbar")) scheduleRemoveFollowSubscriptionToolbar();
 }, contentScriptEventOptions);
 document.addEventListener("focusout", (event) => {
-  const anchoredBookmark = event.target?.closest?.("button") === bookmarkCandidateState?.bookmarkButton;
-  if (anchoredBookmark && !isWithinAnchorOrToolbar(event.relatedTarget, bookmarkCandidateState?.bookmarkButton, "#x-to-md-bookmark-candidate-toolbar")) scheduleRemoveBookmarkCandidateToolbar();
   const anchoredButton = event.target?.closest?.("button") === followSubscriptionState?.followButton;
   if (anchoredButton && !isWithinAnchorOrToolbar(event.relatedTarget, followSubscriptionState?.followButton, "#x-to-md-follow-subscription-toolbar")) scheduleRemoveFollowSubscriptionToolbar();
 }, contentScriptEventOptions);
@@ -926,7 +948,6 @@ document.addEventListener("pointerdown", handleArticleMoreMenuTrigger, { capture
 document.addEventListener("click", handleArticleMoreMenuTrigger, { capture: true, ...contentScriptEventOptions });
 
 document.addEventListener("mousedown", (event) => {
-  if (!event.target.closest("#x-to-md-bookmark-candidate-toolbar") && event.target.closest("button") !== bookmarkCandidateState?.bookmarkButton) removeBookmarkCandidateToolbar();
   if (!event.target.closest("#x-to-md-follow-subscription-toolbar") && event.target.closest("button") !== followSubscriptionState?.followButton) removeFollowSubscriptionToolbar();
 }, { capture: true, ...contentScriptEventOptions });
 
@@ -969,7 +990,6 @@ function importPanelStyle() {
     }
     #x-to-md-import-panel button:hover { background: rgb(39, 44, 48) !important; }
     #x-to-md-import-panel button:disabled { opacity: .6 !important; cursor: wait !important; }
-    #x-to-md-import-panel button[data-import-state="open"] { border: 1px solid rgb(207, 217, 222) !important; background: #fff !important; color: rgb(15, 20, 25) !important; }
     #x-to-md-import-panel [data-import-status]:not(:empty) {
       margin-top: 12px !important; color: rgb(244, 33, 46) !important;
       font: 400 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
@@ -995,46 +1015,26 @@ function createImportPanel() {
   panel.innerHTML = '<h2>Copy Markdown</h2><p>Copy the current X content as Markdown. Nothing is uploaded.</p><button type="button" data-import>Extract and copy</button><div data-import-status role="status" aria-live="polite"></div>';
   document.head.append(style);
   document.body.append(panel);
-  importPanelState = { panel, style, capture: null, saved: false };
+  importPanelState = { panel, style, capture: null };
   const button = panel.querySelector("[data-import]");
   const status = panel.querySelector("[data-import-status]");
   button.addEventListener("click", async () => {
     const panelState = importPanelState;
     if (!panelState) return;
     button.disabled = true;
-    button.textContent = panelState.capture ? "Saving…" : "Extracting…";
+    button.textContent = "Extracting…";
     status.textContent = "";
     status.className = "";
     try {
-      if (!panelState.capture) {
-        const capture = await capturePage();
-        await navigator.clipboard.writeText(capture.content);
-        panelState.capture = capture;
-        chrome.runtime.sendMessage({ type: "capture-completed", sourceUrl: capture.sourceUrl }).catch(() => {});
-        button.disabled = false;
-        button.textContent = "Save to library";
-        status.textContent = "Markdown copied. Save it to add it to your library.";
-        status.className = "is-success";
-        return;
-      }
-      if (!panelState.saved) {
-        const result = await chrome.runtime.sendMessage({ type: "save-capture-to-library", capture: panelState.capture });
-        if (result?.error) throw new Error(result.error);
-        panelState.saved = true;
-        button.disabled = false;
-        button.dataset.importState = "open";
-        button.textContent = "Open Side Panel";
-        status.textContent = result?.existing ? "Already in your library." : "Saved to library.";
-        status.className = "is-success";
-        return;
-      }
-      const result = await chrome.runtime.sendMessage({ type: "open-side-panel" });
-      if (result?.error) throw new Error(result.error);
-      removeImportPanel();
+      await extractAndCopyCurrentPage();
+      button.disabled = false;
+      button.textContent = "Extract and copy";
+      status.textContent = "Copied to clipboard";
+      status.className = "is-success";
     } catch (error) {
       status.textContent = error.message || "Extraction failed. Please try again.";
       button.disabled = false;
-      button.textContent = panelState.saved ? "Open Side Panel" : panelState.capture ? "Save to library" : "Extract and copy";
+      button.textContent = "Extract and copy";
     }
   });
 }

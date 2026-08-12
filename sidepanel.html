@@ -3,16 +3,16 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Content Inbox</title>
+    <title>候选集 · X to MD</title>
     <link rel="stylesheet" href="sidepanel.css" />
   </head>
   <body>
-    <main id="app" class="inbox" aria-label="X Content Inbox">
-      <nav class="tabbar" aria-label="Content Inbox navigation">
-        <button type="button" data-view="candidates" class="tab is-active" aria-label="收件箱" title="收件箱">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3.5 10.5 8.5-7 8.5 7V20.5h-5.75v-6h-5.5v6H3.5z"/></svg>
+    <main id="app" class="inbox" aria-label="X to MD 候选集">
+      <nav class="tabbar" aria-label="候选集导航">
+        <button type="button" data-view="candidates" class="tab is-active" aria-label="候选集" title="候选集">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 5.5h17l-2 12.5H5.5L3.5 5.5zm2.7 2 1.1 7h9.4l1.1-7H6.2zM8 3h8v2H8z"/><path d="M9 11h6v2H9z"/></svg>
           <span class="tab-badge" hidden aria-hidden="true"></span>
-          <span class="sr-only">收件箱</span>
+          <span class="sr-only">候选集</span>
         </button>
         <button type="button" data-view="subscriptions" class="tab" aria-label="关注作者" title="关注作者">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8.5" cy="8" r="3.25"/><path d="M2.75 20c.75-3.2 2.85-4.8 5.75-4.8s5 1.6 5.75 4.8M16.1 5.25a3 3 0 0 1 0 5.5M16 14.25c2.6.2 4.35 1.85 4.75 5"/></svg>
@@ -36,7 +36,7 @@
       <button class="nav-reveal" type="button" data-action="navigation-restore" aria-label="显示导航栏" title="显示导航栏"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M10 4v16"/></svg></button>
       <div class="main-column">
         <div id="status" class="status" role="status" aria-live="polite"></div>
-        <header class="page-header"><button class="back-button" type="button" aria-label="返回" title="返回"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button><h1 id="page-title">收件箱</h1></header>
+        <header class="page-header"><button class="back-button" type="button" aria-label="返回" title="返回"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button><h1 id="page-title">候选集</h1></header>
         <section id="view" class="view"></section>
       </div>
     </main>

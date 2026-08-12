@@ -64,6 +64,11 @@ async function loadData() {
   const layout = stored[NAVIGATION_LAYOUT_STORAGE_KEY] || {};
   state.navigationPlacement = ["left", "right", "hidden"].includes(layout.placement) ? layout.placement : "left";
   state.lastVisibleNavigationPlacement = layout.lastVisiblePlacement === "right" ? "right" : "left";
+  const target = await chrome.storage.session.get("x-to-md-sidepanel-target");
+  if (["candidates", "assets", "subscriptions"].includes(target["x-to-md-sidepanel-target"])) {
+    state.page = target["x-to-md-sidepanel-target"];
+    await chrome.storage.session.remove("x-to-md-sidepanel-target");
+  }
 }
 async function saveData() { await chrome.storage.local.set({ [STORAGE_KEY]: state.data }); }
 function badgeItems(viewName) {
@@ -276,7 +281,7 @@ function snapshotAction(snapshot, key) {
   return `<span class="article-snapshot-action article-snapshot-${key}" aria-hidden="true">${xIcon(snapshot?.[key])}</span>`;
 }
 function candidateCell(candidate) {
-  const statusLabel = { new: "新发现", viewed: "已查看", extracted: "已提取", ignored: "已从收件箱移除", saved: "已保存素材" }[candidate.status] || "新发现";
+  const statusLabel = { new: "新发现", viewed: "已查看", extracted: "已提取", ignored: "已从候选集移除", saved: "已保存素材" }[candidate.status] || "新发现";
   const authorName = candidate.authorName || candidate.authorHandle || "未知作者";
   const avatar = candidate.authorAvatarUrl ? `<img src="${escapeHtml(candidate.authorAvatarUrl)}" alt="" />` : escapeHtml(avatarLabel(candidate));
   const verified = candidate.authorVerified ? verifiedBadge() : "";
@@ -286,7 +291,7 @@ function candidateCell(candidate) {
   const engagementLabel = ["reply", "repost", "like", "views"].map((key) => snapshot[key]?.count ? `${key} ${snapshot[key].count}` : "").filter(Boolean).join("，") || "暂无互动数据";
   const metrics = ["reply", "repost", "like", "views"].map((key) => snapshotMetric(snapshot, key)).join("");
   const utility = xIcon(candidate.utilityIconSnapshot);
-  const removeButton = `<button class="article-inbox-remove" data-action="candidate-remove" data-id="${escapeHtml(candidate.id)}" type="button" aria-label="从收件箱移除" title="从收件箱移除" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4.5C4 3.12 5.119 2 6.5 2h11C18.881 2 20 3.12 20 4.5v18.44l-8-5.71-8 5.71V4.5z"></path></svg></button>`;
+  const removeButton = `<button class="article-inbox-remove" data-action="candidate-remove" data-id="${escapeHtml(candidate.id)}" type="button" aria-label="从候选集移除" title="从候选集移除" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 5.5h17l-2 12.5H5.5L3.5 5.5zm2.7 2 1.1 7h9.4l1.1-7H6.2zM8 3h8v2H8z"></path><path d="M9 11h6v2H9z"></path></svg></button>`;
   return `<article class="article-post" data-candidate="${escapeHtml(candidate.id)}" data-source-url="${escapeHtml(articleId(candidate.sourceUrl))}"><span class="sr-only">${escapeHtml(statusLabel)}</span><div class="article-avatar" aria-hidden="true">${avatar}</div><div class="article-content"><div class="article-author"><strong><span class="article-author-name">${escapeHtml(authorName)}</span>${verified}</strong><span class="article-handle">${escapeHtml(candidate.authorHandle || "")}</span><span class="article-date">· ${escapeHtml(formatDate(candidate.publishedAt))}</span><span class="article-author-actions" aria-hidden="true"><span class="article-utility-slot">${utility}</span><span class="article-overflow-slot"></span></span></div><a class="article-card" data-action="candidate-open" data-id="${escapeHtml(candidate.id)}" href="${escapeHtml(candidate.sourceUrl)}" target="_blank" rel="noreferrer">${media}<span class="article-card-body"><strong>${escapeHtml(candidate.title)}</strong>${excerpt}</span></a><div class="article-engagement" role="group" aria-label="${escapeHtml(engagementLabel)}"><span class="article-engagement-metrics">${metrics}</span><span class="article-engagement-actions">${removeButton}${snapshotAction(snapshot, "bookmark")}${snapshotAction(snapshot, "share")}</span></div></div></article>`;
 }
 function renderCandidates() {
@@ -299,7 +304,7 @@ function renderCandidates() {
     const count = candidateCountForDate(date);
     return `<button class="${state.candidateDate === date ? "is-active" : ""}" data-candidate-date="${date}" type="button" aria-label="${label} ${count} 篇">${label}<span class="candidate-date-count" aria-hidden="true">${count}</span></button>`;
   }).join("");
-  const filters = `<div class="candidate-filters"><label class="panel-search"><span class="sr-only">搜索收件箱</span>${searchIcon()}<input data-candidate-search type="search" placeholder="搜索标题、作者或 @handle" value="${escapeHtml(state.candidateQuery)}" aria-label="搜索收件箱"></label><div class="candidate-date-row"><div class="candidate-date-tabs" role="group" aria-label="收件箱日期筛选">${dateTabs}</div><div class="candidate-sort" role="group" aria-label="收件箱排序"><button class="${state.candidateSort === "addedAt" ? "is-active" : ""}" data-candidate-sort="addedAt" type="button">最近添加</button><button class="${state.candidateSort === "publishedAt" ? "is-active" : ""}" data-candidate-sort="publishedAt" type="button">最新发表</button></div></div></div>`;
+  const filters = `<div class="candidate-filters"><label class="panel-search"><span class="sr-only">搜索候选集</span>${searchIcon()}<input data-candidate-search type="search" placeholder="搜索标题、作者或 @handle" value="${escapeHtml(state.candidateQuery)}" aria-label="搜索候选集"></label><div class="candidate-date-row"><div class="candidate-date-tabs" role="group" aria-label="候选集日期筛选">${dateTabs}</div><div class="candidate-sort" role="group" aria-label="候选集排序"><button class="${state.candidateSort === "addedAt" ? "is-active" : ""}" data-candidate-sort="addedAt" type="button">最近添加</button><button class="${state.candidateSort === "publishedAt" ? "is-active" : ""}" data-candidate-sort="publishedAt" type="button">最新发表</button></div></div></div>`;
   const emptyMessage = hasCandidates ? "当前筛选条件下没有匹配的 Article。" : "还没有候选 Article。前往关注作者，打开作者的 Articles 页面并手动获取。";
   view.innerHTML = `${filters}${candidates.length ? candidates.map(candidateCell).join("") : `<p class="empty">${emptyMessage}</p>`}`;
 }
@@ -397,7 +402,7 @@ function render() {
   app.classList.toggle("nav-restore-right", state.navigationPlacement === "hidden" && state.lastVisibleNavigationPlacement === "right");
   renderNavigationBadges();
   pageHeader.hidden = !["stats", "settings"].includes(state.page);
-  pageTitle.textContent = { candidates: "收件箱", subscriptions: "关注作者", assets: "素材库", stats: "统计", settings: "设置" }[state.page] || "收件箱";
+  pageTitle.textContent = { candidates: "候选集", subscriptions: "关注作者", assets: "素材库", stats: "统计", settings: "设置" }[state.page] || "候选集";
   if (state.page === "candidates") renderCandidates();
   else if (state.page === "subscriptions") renderSubscriptions();
   else if (state.page === "stats") renderStats();
@@ -426,7 +431,7 @@ async function handleAction(action, target) {
   if (candidate && action === "candidate-open") { candidate.status = candidate.status === "new" ? "viewed" : candidate.status; await saveData(); window.open(candidate.sourceUrl, "_blank"); return render(); }
   if (candidate && action === "candidate-remove") {
     candidate.status = "ignored";
-    await saveData(); render(); setStatus("已从收件箱移除");
+    await saveData(); render(); setStatus("已从候选集移除");
     return;
   }
   const asset = state.data.assets.find((item) => item.id === idValue);
@@ -574,6 +579,11 @@ view.addEventListener("keydown", (event) => {
   handleAction(action, event.target.closest(selector)?.querySelector("[data-action]")).catch((error) => setStatus(error.message || "操作失败", "error"));
 });
 chrome.runtime.onMessage.addListener((message) => {
+  if (message?.type === "navigate-sidepanel" && ["candidates", "assets", "subscriptions"].includes(message.view)) {
+    state.page = message.view;
+    markNavigationViewed(state.page).then(() => render()).catch(() => render());
+    return;
+  }
   if (message?.type !== "capture-completed" || !message.sourceUrl) return;
   const candidate = state.data.candidates.find((item) => articleId(item.sourceUrl) === articleId(message.sourceUrl));
   if (!candidate || candidate.status === "saved") return;

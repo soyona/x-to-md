@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "x-to-md",
-  "version": "2.3.1",
+  "version": "2.3.2",
   "description": "Open the current X content assistant to save and copy clean Markdown without images.",
   "permissions": ["activeTab", "storage", "sidePanel", "scripting"],
   "host_permissions": [

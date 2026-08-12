@@ -51,7 +51,16 @@
     return { inbox: { ...(inbox || {}), candidates, assets }, existing: Boolean(existing) };
   }
 
-  globalThis.XToMdInboxStore = { normalizedSourceUrl, saveCapture };
+  function removeCapture(inbox, sourceUrl) {
+    const normalizedUrl = normalizedSourceUrl(sourceUrl);
+    const candidates = (inbox?.candidates || []).map((candidate) => ({ ...candidate }));
+    const assets = (inbox?.assets || []).filter((asset) => normalizedSourceUrl(asset.sourceUrl) !== normalizedUrl);
+    const candidate = candidates.find((item) => normalizedSourceUrl(item.sourceUrl) === normalizedUrl);
+    if (candidate?.status === "saved") candidate.status = "new";
+    return { inbox: { ...(inbox || {}), candidates, assets }, removed: assets.length !== (inbox?.assets || []).length };
+  }
+
+  globalThis.XToMdInboxStore = { normalizedSourceUrl, saveCapture, removeCapture };
 }());
 
 const X_TAB_URL_PATTERNS = [
@@ -61,7 +70,7 @@ const X_TAB_URL_PATTERNS = [
   "https://www.twitter.com/*",
 ];
 const CONTENT_INBOX_STORAGE_KEY = "x-to-md-content-inbox";
-const CONTENT_SCRIPT_REVISION = "article-more-menu-v11";
+const CONTENT_SCRIPT_REVISION = "article-more-menu-v20";
 
 function reportContentScriptError(context, error) {
   console.error(`[x-to-md] ${context}`, error);
@@ -156,15 +165,45 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch((error) => sendResponse({ error: error.message || "无法保存素材。" }));
     return true;
   }
+  if (message?.type === "remove-capture-from-library") {
+    chrome.storage.local.get(CONTENT_INBOX_STORAGE_KEY)
+      .then((stored) => {
+        const result = globalThis.XToMdInboxStore.removeCapture(
+          stored[CONTENT_INBOX_STORAGE_KEY],
+          message.sourceUrl,
+        );
+        return chrome.storage.local.set({ [CONTENT_INBOX_STORAGE_KEY]: result.inbox }).then(() => result);
+      })
+      .then((result) => sendResponse({ ok: true, removed: result.removed }))
+      .catch((error) => sendResponse({ error: error.message || "无法移除素材。" }));
+    return true;
+  }
+  if (message?.type === "open-markdown-preview") {
+    chrome.storage.session.set({ "library-markdown-preview": {
+      title: message.capture?.title || "",
+      markdown: message.capture?.content || "",
+      authorName: message.capture?.authorName || "",
+      authorHandle: message.capture?.authorHandle || "",
+      sourceUrl: message.capture?.sourceUrl || "",
+      publishedAt: message.capture?.publishedAt || null,
+    } })
+      .then(() => chrome.tabs.create({ url: chrome.runtime.getURL("preview.html?mode=library") }))
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ error: error.message || "无法打开 Markdown 预览。" }));
+    return true;
+  }
   if (message?.type === "open-side-panel") {
     const windowId = sender.tab?.windowId;
+    const view = ["candidates", "assets", "subscriptions"].includes(message.view) ? message.view : "candidates";
     if (!windowId || !chrome.sidePanel?.open) {
-      sendResponse({ error: "请点击扩展图标打开素材库。" });
+      sendResponse({ error: "请点击扩展图标打开 Side Panel。" });
       return;
     }
     chrome.sidePanel.open({ windowId })
-      .then(() => sendResponse({ ok: true }))
-      .catch(() => sendResponse({ error: "请点击扩展图标打开素材库。" }));
+      .then(() => chrome.storage.session.set({ "x-to-md-sidepanel-target": view }))
+      .then(() => chrome.runtime.sendMessage({ type: "navigate-sidepanel", view }).catch(() => {}))
+      .then(() => sendResponse({ ok: true, view }))
+      .catch((error) => sendResponse({ error: error.message || "无法打开 Side Panel。" }));
     return true;
   }
 });
