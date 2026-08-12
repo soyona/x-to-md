@@ -635,7 +635,7 @@ async function saveAuthorSubscription(author) {
   const existingSubscription = subscriptions.find((subscription) => subscription.handle?.toLowerCase() === author.handle.toLowerCase());
   const authorMetadata = { displayName: author.displayName, profileUrl: author.profileUrl, authorAvatarUrl: author.authorAvatarUrl, description: author.description, authorVerified: author.authorVerified };
   if (existingSubscription) Object.assign(existingSubscription, authorMetadata);
-  else subscriptions.push({ id: `sub_${crypto.randomUUID?.() || Date.now()}`, handle: author.handle, ...authorMetadata });
+  else subscriptions.push({ id: `sub_${crypto.randomUUID?.() || Date.now()}`, handle: author.handle, addedAt: new Date().toISOString(), ...authorMetadata });
   await chrome.storage.local.set({ [CONTENT_INBOX_STORAGE_KEY]: { ...inbox, subscriptions } });
 }
 

@@ -42,6 +42,7 @@
         tags: [],
         note: "",
         usageStatus: "unused",
+        publishedLinks: [],
         createdAt: now,
         updatedAt: now,
       });

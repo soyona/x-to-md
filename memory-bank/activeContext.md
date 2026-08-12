@@ -8,8 +8,9 @@
 - 扩展提供 X/Twitter 当前页面读取、文章原文打开和不含图片的 Markdown 复制；收件箱候选 Card 以 X Bookmarks 中栏为像素级视觉载体，点击后直接打开 X 原文，不在 Side Panel 保存或渲染完整正文。
 - 权限保持最小化：`activeTab`、`storage`、`sidePanel`、`scripting` 和四个 X/Twitter HTTPS 主机范围；`scripting` 仅向已打开的 X/Twitter 标签补注入已打包事件脚本，或在用户点击 Action 后注入当前标签，避免扩展重载前已打开的 X 页面缺少交互；脚本仅在用户 hover/focus 原生 Follow 或 Bookmark 按钮时读取对应局部 DOM。v2 主链路不使用存储传递视觉内容，保留旧语义预览兼容页。
 - v2.3.0 增加 Chrome Side Panel Content Inbox：收件箱、关注作者、候选去重/状态、素材库搜索与主动保存；数据写入 `chrome.storage.local`。
-- Side Panel 现在读取当前标签页的只读上下文；Article 页面提供“保存并复制 Markdown”，作者 Articles 页面提示从 X 原文加入收件箱，非 X 页面显示边界提示。
-- 素材库以完整封面、标题和来源组成紧凑识别行：封面使用 `object-fit: contain` 保留全部视觉信息，候选元数据在保存时优先继承；直接保存使用同一次用户主动提取的公开元数据。旧素材不回填，缺少封面时显示稳定 Article 占位和已有摘要；搜索覆盖标题、作者、handle、标签与备注。
+- Side Panel 不再读取或展示当前标签页上下文；加入收件箱与保存 Markdown 均在 X 原文中完成，三项主视图直接显示各自管理内容。
+- 素材库以「为何值得用、当前状态、下一步」组成 X 式紧凑 Card，并与收件箱复用同一 X Bookmarks 骨架：`40px` 头像列、单行作者/handle/发布与收录日期、完整宽度约 `2.55:1` 媒体框和 Card 内标题。素材封面在媒体框内使用 `object-fit: contain` 保留全部视觉信息，并可在 X 式遮罩中放大查看；候选元数据在保存时优先继承。直接保存使用同一次用户主动提取的公开元数据。旧素材不回填，缺少封面时显示稳定 Article 占位；搜索覆盖标题、作者、handle、标签与备注。
+- 素材 Card 不显示 Markdown 摘要、展开或收起；完整 Markdown 只能通过底部工具栏的“预览 Markdown”进入一次性阅读页，列表不渲染正文。当前没有创作实体，常驻底部使用诚实的 `未使用` / `已使用` 状态和黑色 X 式“标记为已使用”按钮，不伪造创作关联；其他动作收进 `•••`。标签输入在该浮层内完成，不撑开 Card。“管理发布链接”从 `•••` 打开 X 式居中弹层，可查看、打开、移除、添加或按平台替换链接；校验错误紧邻输入框。发布只接受 HTTPS 小红书、Reddit、微信文章或 B 站链接，并以“已发布至”文字和可跳转的平台图标表达；旧的小红书单链接读取时兼容迁移。
 - 候选卡只提供扩展书签“从收件箱移除”；候选 `•••`、`忽略候选` 和候选卡内“添加至素材库”入口已移除。单篇 X 原文在原生 Bookmark hover/focus 操作位额外提供 `Extract and copy`；复制后必须再次点击 `Save to library` 才会写入素材，保存后可打开 Side Panel 查看素材库。Side Panel 的“保存并复制 Markdown”仍是同一后台保存路径的快捷入口。
 - 在 X 原文中悬停或键盘聚焦原生 `Follow @handle` 或 `Following` 按钮，会出现扩展的关注作者工具栏；覆盖 Profile Summary、Follow 列表 UserCell、Article 作者头部和 Profile 头部，不再要求选取作者名称，且状态以扩展关注作者列表为准。未关注时显示蓝色 `Follow` 并按公开 handle 去重写入；已关注时显示 `Following`，hover/focus 变为红色 `unfollow`，点击从同一存储删除。Side Panel 通过存储监听实时同步。
 - “关注作者”页只保留 X Follow UI：使用 X `--twitter-*` token 显示头像、姓名、认证标识、handle、简介与 `Following`；作者信息区直接链接到 `https://x.com/<handle>`，悬停/聚焦关注按钮时变为红色 `unfollow`，点击直接取消关注。旧的手动添加、详情、编辑、启停、扫描和删除入口已移除。
@@ -26,6 +27,8 @@
 - X 的 DOM、类名和 Article 渲染结构可能变化，`content.js` 的选择器需要定期以真实页面复核。
 - 自动化测试覆盖 Markdown 与选择器存在性；尚未替代 Chrome 实际加载、剪贴板权限和真实页面兼容性验收。
 - Side Panel 的完整 Chrome 交互（写入候选、保存素材）仍待人工复核；作者 Articles 页面 DOM 识别已完成实测。
+- 左侧收件箱、关注作者和素材库导航使用独立的本地未读基线；首次启用只建立基线不提示历史数据，后续加入候选、关注作者或保存素材才出现 X 样式数字角标，用户点击对应导航项才标记为已读。
+- 左侧导航新增 X 风格设置图标；设置页可持久化切换导航位于左侧、右侧或隐藏。隐藏状态提供无文字的布局图标，以恢复到此前的可见侧。
 - 2026-08-10 已在 `https://x.com/AnatoliKopadze/articles` 实测：X 当前列表使用普通 generic 标题节点，已补充 `Article` 标记后下一行标题回退；近 7 天发现 1 条，2026-06-01 至 2026-08-10 发现 5 条。
 - 候选集采用 X Bookmarks Card 结构；用户从 X 原文主动加入时读取当前局部 Card 的可见头像、封面、摘要、认证和互动快照，并保存到 `chrome.storage.local`。旧候选缺少快照时按已有字段降级显示，不伪造数据。
 - 候选卡不再接收 X 主页面的计算样式或布局 token；它只使用 Side Panel 的固定样式，避免主页面与 Side Panel 宽度不同导致布局漂移。

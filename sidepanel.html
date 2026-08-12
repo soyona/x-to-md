@@ -9,30 +9,34 @@
   <body>
     <main id="app" class="inbox" aria-label="X Content Inbox">
       <nav class="tabbar" aria-label="Content Inbox navigation">
-        <div class="brand-mark" role="img" aria-label="x-to-md">
-          <img src="assets/icons/x-to-md-icon-48.png" width="28" height="28" alt="" />
-        </div>
         <button type="button" data-view="candidates" class="tab is-active" aria-label="收件箱" title="收件箱">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z"/></svg>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3.5 10.5 8.5-7 8.5 7V20.5h-5.75v-6h-5.5v6H3.5z"/></svg>
+          <span class="tab-badge" hidden aria-hidden="true"></span>
           <span class="sr-only">收件箱</span>
         </button>
         <button type="button" data-view="subscriptions" class="tab" aria-label="关注作者" title="关注作者">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c.7-3 2.6-4.5 5.5-4.5s4.8 1.5 5.5 4.5M16 5.5a3 3 0 0 1 0 5.8M16 14.5c2.5.2 4.1 1.7 4.5 4.5"/></svg>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8.5" cy="8" r="3.25"/><path d="M2.75 20c.75-3.2 2.85-4.8 5.75-4.8s5 1.6 5.75 4.8M16.1 5.25a3 3 0 0 1 0 5.5M16 14.25c2.6.2 4.35 1.85 4.75 5"/></svg>
+          <span class="tab-badge" hidden aria-hidden="true"></span>
           <span class="sr-only">关注作者</span>
         </button>
         <button type="button" data-view="assets" class="tab" aria-label="素材库" title="素材库">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4.5h12v16l-6-3.8-6 3.8z"/></svg>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3.75h12v16.5l-6-3.75-6 3.75z"/></svg>
+          <span class="tab-badge" hidden aria-hidden="true"></span>
           <span class="sr-only">素材库</span>
         </button>
-        <button type="button" data-view="stats" class="tab tab-more" aria-label="统计" title="统计">
+        <button type="button" data-view="stats" class="tab" aria-label="统计" title="统计">
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="10" width="3" height="10" rx=".75"/><rect x="10.5" y="4" width="3" height="16" rx=".75"/><rect x="17.5" y="13" width="3" height="7" rx=".75"/></svg>
           <span class="sr-only">统计</span>
         </button>
+        <button type="button" data-view="settings" class="tab tab-more" aria-label="设置" title="设置">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M19.2 13.3a7.8 7.8 0 0 0 .05-2.6l2-1.45-2-3.46-2.34.94a8 8 0 0 0-2.25-1.3L14.3 3h-4l-.38 2.43a8 8 0 0 0-2.25 1.3l-2.34-.94-2 3.46 2 1.45a7.8 7.8 0 0 0 .05 2.6l-2 1.45 2 3.46 2.34-.94a8 8 0 0 0 2.25 1.3l.38 2.43h4l.38-2.43a8 8 0 0 0 2.25-1.3l2.34.94 2-3.46z"/></svg>
+          <span class="sr-only">设置</span>
+        </button>
       </nav>
+      <button class="nav-reveal" type="button" data-action="navigation-restore" aria-label="显示导航栏" title="显示导航栏"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M10 4v16"/></svg></button>
       <div class="main-column">
         <div id="status" class="status" role="status" aria-live="polite"></div>
         <header class="page-header"><button class="back-button" type="button" aria-label="返回" title="返回"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button><h1 id="page-title">收件箱</h1></header>
-        <section id="current-context" class="current-context" aria-live="polite"></section>
         <section id="view" class="view"></section>
       </div>
     </main>

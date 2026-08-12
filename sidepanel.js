@@ -1,14 +1,17 @@
 const STORAGE_KEY = "x-to-md-content-inbox";
+const NAVIGATION_BADGES_STORAGE_KEY = "x-to-md-navigation-badges";
+const NAVIGATION_LAYOUT_STORAGE_KEY = "x-to-md-navigation-layout";
 const view = document.querySelector("#view");
 const status = document.querySelector("#status");
-const currentContext = document.querySelector("#current-context");
 const pageHeader = document.querySelector(".page-header");
 const pageTitle = document.querySelector("#page-title");
 const backButton = document.querySelector(".back-button");
+const app = document.querySelector("#app");
 
 const state = {
   page: "candidates",
   data: { subscriptions: [], candidates: [], assets: [] },
+  badgeSeenAt: null,
   candidateSort: "addedAt",
   candidateQuery: "",
   candidateDate: "today",
@@ -18,8 +21,13 @@ const state = {
   candidateMenu: null,
   assetMenuPlacement: "down",
   assetTagEditor: null,
+  assetPublishDialog: null,
+  assetPublishDraft: "",
+  assetPublishError: "",
   assetDialog: null,
-  currentContext: null,
+  assetImageDialog: null,
+  navigationPlacement: "left",
+  lastVisibleNavigationPlacement: "left",
 };
 
 function escapeHtml(value) {
@@ -28,92 +36,63 @@ function escapeHtml(value) {
 function formatDate(value) {
   if (!value) return "未记录";
   const date = new Date(value);
-  return Number.isNaN(date.valueOf()) ? value : date.toLocaleDateString("zh-CN", { month: "short", day: "numeric" });
+  return Number.isNaN(date.valueOf()) ? value : `${date.getMonth() + 1}/${date.getDate()}`;
 }
 function setStatus(message = "", kind = "") {
   window.clearTimeout(setStatus.clearTimer);
   status.textContent = message;
   status.className = `status ${kind}`.trim();
-  if (message && kind !== "error") setStatus.clearTimer = window.setTimeout(() => setStatus(), 3200);
+  if (message) setStatus.clearTimer = window.setTimeout(() => setStatus(), 3200);
 }
 function candidateId(candidate) {
   const source = articleId(candidate?.sourceUrl || "");
   return candidate?.id || `article_${source.split("/").pop() || "unknown"}`;
 }
 async function loadData() {
-  const stored = await chrome.storage.local.get(STORAGE_KEY);
+  const stored = await chrome.storage.local.get([STORAGE_KEY, NAVIGATION_BADGES_STORAGE_KEY, NAVIGATION_LAYOUT_STORAGE_KEY]);
   state.data = { ...state.data, ...(stored[STORAGE_KEY] || {}) };
   state.data.subscriptions ||= [];
   state.data.candidates ||= [];
   state.data.assets ||= [];
   state.data.candidates = state.data.candidates.map((candidate) => ({ ...candidate, id: candidateId(candidate) }));
+  state.badgeSeenAt = stored[NAVIGATION_BADGES_STORAGE_KEY] || null;
+  if (!state.badgeSeenAt) {
+    const now = new Date().toISOString();
+    state.badgeSeenAt = { candidates: now, subscriptions: now, assets: now };
+    await chrome.storage.local.set({ [NAVIGATION_BADGES_STORAGE_KEY]: state.badgeSeenAt });
+  }
+  const layout = stored[NAVIGATION_LAYOUT_STORAGE_KEY] || {};
+  state.navigationPlacement = ["left", "right", "hidden"].includes(layout.placement) ? layout.placement : "left";
+  state.lastVisibleNavigationPlacement = layout.lastVisiblePlacement === "right" ? "right" : "left";
 }
 async function saveData() { await chrome.storage.local.set({ [STORAGE_KEY]: state.data }); }
-async function activeTab() {
-  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-  return tab;
+function badgeItems(viewName) {
+  if (viewName === "candidates") return activeCandidates();
+  return state.data[viewName] || [];
 }
-function wait(milliseconds) { return new Promise((resolve) => window.setTimeout(resolve, milliseconds)); }
-async function sendToContent(tab, message) {
-  try {
-    return await chrome.tabs.sendMessage(tab.id, message);
-  } catch (error) {
-    const disconnected = /Could not establish connection|Receiving end does not exist/u.test(error?.message || "");
-    if (!disconnected || !tab.id || !validX(tab.url)) throw error;
-    setStatus("正在刷新当前 X 页面以连接扩展…");
-    await chrome.tabs.reload(tab.id);
-    for (let attempt = 0; attempt < 8; attempt += 1) {
-      await wait(500);
-      try {
-        return await chrome.tabs.sendMessage(tab.id, message);
-      } catch (retryError) {
-        if (!/Could not establish connection|Receiving end does not exist/u.test(retryError?.message || "")) throw retryError;
-      }
+function badgeTimestamp(item, viewName) {
+  return timestamp(item?.[viewName === "candidates" || viewName === "subscriptions" ? "addedAt" : "createdAt"]);
+}
+function unreadBadgeCount(viewName) {
+  const seenAt = timestamp(state.badgeSeenAt?.[viewName]);
+  return badgeItems(viewName).filter((item) => badgeTimestamp(item, viewName) > seenAt).length;
+}
+function renderNavigationBadges() {
+  document.querySelectorAll(".tab[data-view]").forEach((tab) => {
+    const viewName = tab.dataset.view;
+    const count = ["candidates", "subscriptions", "assets"].includes(viewName) ? unreadBadgeCount(viewName) : 0;
+    const badge = tab.querySelector(".tab-badge");
+    if (badge) {
+      badge.hidden = count === 0;
+      badge.textContent = count > 99 ? "99+" : String(count);
     }
-    throw new Error("无法连接当前 X 页面。请刷新页面后重试。");
-  }
+    tab.setAttribute("aria-label", `${tab.title}${count ? `，${count} 个未读` : ""}`);
+  });
 }
-function validX(url) { return /^https:\/\/(?:www\.)?(?:x|twitter)\.com\//u.test(url || ""); }
-function contextLabel(context) {
-  if (!context) return "正在读取当前页面…";
-  if (context.pageKind === "article") return context.title || "当前 Article";
-  if (context.pageKind === "author-articles") return `${context.authorHandle || "当前作者"} · Articles`;
-  if (context.pageKind === "x-page") return "当前 X 页面";
-  return "请打开 X 页面";
-}
-function renderCurrentContext() {
-  currentContext.hidden = state.page === "subscriptions";
-  if (currentContext.hidden) {
-    currentContext.innerHTML = "";
-    return;
-  }
-  const context = state.currentContext;
-  if (!context || context.pageKind === "unsupported" || context.pageKind === "x-page") {
-    currentContext.innerHTML = context?.pageKind === "unsupported" ? "<span>请打开 X 页面以使用当前内容操作</span>" : "";
-    return;
-  }
-  if (context.pageKind === "author-articles") {
-    currentContext.innerHTML = `<div><strong>${escapeHtml(context.authorHandle || "当前作者")}</strong><span>可在 X 原文中将 Article 加入收件箱</span></div>`;
-    return;
-  }
-  const candidate = state.data.candidates.find((item) => articleId(item.sourceUrl) === articleId(context.candidateUrl || context.sourceUrl));
-  const saved = state.data.assets.some((item) => articleId(item.sourceUrl) === articleId(context.sourceUrl));
-  currentContext.innerHTML = `<div><strong>${escapeHtml(contextLabel(context))}</strong><span>${escapeHtml(context.authorHandle || "X Article")}</span></div><button class="primary-button" data-action="context-save" type="button" ${saved ? "disabled" : ""}>${saved ? "已保存" : "保存并复制 Markdown"}</button>${candidate ? `<small>当前候选 · ${escapeHtml(candidate.status === "new" ? "待处理" : candidate.status)}</small>` : ""}`;
-}
-async function refreshContext({ resetPage = true } = {}) {
-  const tab = await activeTab();
-  if (!tab?.id || !validX(tab.url)) {
-    state.currentContext = { ok: true, pageKind: "unsupported", sourceUrl: tab?.url || "" };
-  } else {
-    try {
-      state.currentContext = await sendToContent(tab, { type: "get-current-context" });
-    } catch (error) {
-      state.currentContext = { ok: false, pageKind: "x-page", sourceUrl: tab.url, error: error.message };
-    }
-  }
-  if (resetPage && state.currentContext?.pageKind === "article") state.page = "candidates";
-  renderCurrentContext();
-  if (state.page === "assets") renderAssets();
+async function markNavigationViewed(viewName) {
+  if (!Object.hasOwn(state.badgeSeenAt || {}, viewName)) return;
+  state.badgeSeenAt = { ...state.badgeSeenAt, [viewName]: new Date().toISOString() };
+  await chrome.storage.local.set({ [NAVIGATION_BADGES_STORAGE_KEY]: state.badgeSeenAt });
 }
 function articleId(sourceUrl) { return sourceUrl.split(/[?#]/u)[0].replace(/\/$/u, ""); }
 function timestamp(value) {
@@ -237,23 +216,50 @@ function profileUrl(handle) {
   const normalizedHandle = String(handle || "").replace(/^@/u, "").trim();
   return normalizedHandle ? `https://x.com/${encodeURIComponent(normalizedHandle)}` : "";
 }
-function copyIcon() {
-  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 5.5h10v13h-10zM5.5 18.5h-1v-13h10v1"/></svg>';
-}
 function moreIcon() {
   return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 12a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zm6.5 0a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zm6.5 0a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z"/></svg>';
 }
 function searchIcon() {
   return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.25 3.75a6.5 6.5 0 1 0 5.262 10.324l4.781 4.781 1.414-1.414-4.781-4.781A6.5 6.5 0 0 0 10.25 3.75z"/></svg>';
 }
-function tagIcon() {
-  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 13.5 13.5 20.5l-10-10v-7h7zM8 8h.01"/></svg>';
-}
-function usedIcon() {
-  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.2 4.2L19 7.5"/></svg>';
-}
 function addIcon() {
   return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
+}
+function platformForUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    const host = url.hostname.toLowerCase();
+    if (url.protocol !== "https:") return null;
+    const matches = (domain) => host === domain || host.endsWith(`.${domain}`);
+    const platform = matches("xiaohongshu.com") || matches("xhslink.com") ? "xiaohongshu"
+      : matches("reddit.com") || host === "redd.it" ? "reddit"
+        : matches("weixin.qq.com") ? "wechat"
+          : matches("bilibili.com") || host === "b23.tv" ? "bilibili" : "";
+    return platform ? { platform, url: url.toString() } : null;
+  } catch {
+    return null;
+  }
+}
+function platformIcon(platform) {
+  if (platform === "xiaohongshu") return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4" fill="currentColor" stroke="none"/><text x="12" y="14.5" fill="#fff" stroke="none" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="6.4" font-weight="800">小红书</text></svg>';
+  if (platform === "reddit") return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="currentColor" stroke="none"/><circle cx="9.2" cy="12.2" r="1" fill="#fff" stroke="none"/><circle cx="14.8" cy="12.2" r="1" fill="#fff" stroke="none"/><path d="M8.8 15c1.9 1.4 4.5 1.4 6.4 0M14 6.4l1.7.5.6-1.2M7.2 9.7 5.6 8.5M16.8 9.7l1.6-1.2" stroke="#fff" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  if (platform === "wechat") return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.6 5.2c4.2 0 7.5 2.7 7.5 6 0 3.3-3.3 6-7.5 6-.8 0-1.5-.1-2.2-.3L7 18.7l.8-2.6c-1.7-1.1-2.7-2.8-2.7-4.9 0-3.3 3.4-6 7.5-6Z" fill="currentColor" stroke="none"/><circle cx="9.6" cy="10.8" r=".85" fill="#fff" stroke="none"/><circle cx="14.7" cy="10.8" r=".85" fill="#fff" stroke="none"/><path d="M17.6 16.4c.8.5 1.4 1.3 1.4 2.2 0 1.6-1.9 2.9-4.3 2.9-.5 0-1 0-1.4-.2l-2 1 .5-1.7" fill="#fff" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>';
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="3" fill="currentColor" stroke="none"/><path d="m8.2 4.5 2.1 1.5m5.5-1.5-2.1 1.5M8.5 11h2.3m2.4 0h2.3M10 14h4" stroke="#fff" stroke-width="1.35" stroke-linecap="round"/></svg>';
+}
+function platformLabel(platform) {
+  return { xiaohongshu: "小红书", reddit: "Reddit", wechat: "微信", bilibili: "B站" }[platform] || "发布平台";
+}
+function publishedLinksForAsset(asset) {
+  const links = Array.isArray(asset.publishedLinks) ? asset.publishedLinks : [];
+  const legacy = asset.xiaohongshuNoteUrl ? [{ platform: "xiaohongshu", url: asset.xiaohongshuNoteUrl }] : [];
+  const unique = new Map();
+  [...links, ...legacy].forEach((item) => {
+    const detected = platformForUrl(item?.url);
+    if (detected) unique.set(detected.url, detected);
+  });
+  return [...unique.values()];
 }
 function xIcon(icon) {
   if (!icon?.paths?.length) return "";
@@ -333,22 +339,43 @@ function renderAssets() {
       ? authorProfileUrl ? `<a href="${escapeHtml(authorProfileUrl)}" target="_blank" rel="noreferrer">${escapeHtml(asset.authorHandle)}</a>` : `<span>${escapeHtml(asset.authorHandle)}</span>`
       : "";
     const cover = asset.coverImageUrl
-      ? `<img src="${escapeHtml(asset.coverImageUrl)}" alt="" />`
-      : `<span class="asset-cover-placeholder" aria-hidden="true">𝕏<br>Article</span>`;
-    const fallbackExcerpt = !asset.coverImageUrl && asset.previewExcerpt ? `<p class="asset-excerpt">${escapeHtml(asset.previewExcerpt)}</p>` : "";
+      ? `<button class="article-card-media asset-card-media" data-action="asset-view-cover" data-id="${escapeHtml(asset.id)}" type="button" aria-label="放大查看 ${escapeHtml(asset.title)} 封面"><img src="${escapeHtml(asset.coverImageUrl)}" alt="" /></button>`
+      : `<span class="article-card-media asset-card-media asset-card-placeholder" aria-hidden="true">𝕏<br>Article</span>`;
     const verified = asset.authorVerified ? verifiedBadge() : "";
     const tags = (asset.tags || []).map((tag) => `<span class="asset-tag"><span>${escapeHtml(tag)}</span><button data-action="asset-remove-tag" data-id="${escapeHtml(asset.id)}" data-tag="${escapeHtml(tag)}" type="button" aria-label="删除标签 ${escapeHtml(tag)}" title="删除标签">×</button></span>`).join("");
-    const menu = state.candidateMenu === asset.id ? `<div class="candidate-menu asset-menu ${state.assetMenuPlacement === "up" ? "is-up" : ""}" role="menu"><button data-action="asset-delete" data-id="${escapeHtml(asset.id)}" type="button" role="menuitem">删除素材</button></div>` : "";
     const avatarMarkup = authorProfileUrl
-      ? `<a class="asset-avatar" href="${escapeHtml(authorProfileUrl)}" target="_blank" rel="noreferrer" aria-label="打开 ${escapeHtml(authorName)} 的 X 主页">${avatar}</a>`
-      : `<div class="asset-avatar" aria-hidden="true">${avatar}</div>`;
-    const tagEditor = state.assetTagEditor === asset.id ? `<div class="asset-tag-editor"><input data-asset-tag-input data-id="${escapeHtml(asset.id)}" type="text" placeholder="输入标签后回车" aria-label="添加标签"><button class="asset-icon-button" data-action="asset-add-tag" data-id="${escapeHtml(asset.id)}" type="button" aria-label="确认添加标签" title="确认添加标签">${addIcon()}</button></div>` : "";
-    return `<article class="asset-cell"><a class="asset-cover" href="${escapeHtml(asset.sourceUrl)}" target="_blank" rel="noreferrer" aria-label="打开 ${escapeHtml(asset.title)} 原文">${cover}</a><div class="asset-content"><div class="asset-heading">${avatarMarkup}<div class="asset-heading-copy"><a class="asset-title" href="${escapeHtml(asset.sourceUrl)}" target="_blank" rel="noreferrer">${escapeHtml(asset.title)}</a><div class="asset-byline">${authorNameMarkup}${verified}${authorHandleMarkup}${asset.publishedAt ? `<span>· 发布于 ${escapeHtml(formatDate(asset.publishedAt))}</span>` : ""}</div></div><div class="asset-menu-anchor"><button class="article-more" data-action="asset-menu" data-id="${escapeHtml(asset.id)}" type="button" aria-label="素材操作" aria-expanded="${state.candidateMenu === asset.id}">${moreIcon()}</button>${menu}</div></div>${fallbackExcerpt}<div class="asset-meta"><span>${asset.usageStatus === "used" ? "已用于创作" : "未使用"}</span><span>保存于 ${escapeHtml(formatDate(asset.createdAt))}</span></div>${tags || tagEditor ? `<div class="asset-tags-row" aria-label="标签">${tags}${tagEditor}</div>` : ""}<div class="cell-actions"><button class="asset-icon-button" data-action="asset-copy" data-id="${escapeHtml(asset.id)}" type="button" aria-label="复制 Markdown" title="复制 Markdown">${copyIcon()}</button><button class="asset-icon-button ${asset.usageStatus === "used" ? "is-active" : ""}" data-action="asset-toggle-used" data-id="${escapeHtml(asset.id)}" type="button" aria-label="${asset.usageStatus === "used" ? "标记未使用" : "标记已用于创作"}" title="${asset.usageStatus === "used" ? "标记未使用" : "标记已用于创作"}">${usedIcon()}</button><button class="asset-icon-button ${state.assetTagEditor === asset.id ? "is-active" : ""}" data-action="asset-tag-editor" data-id="${escapeHtml(asset.id)}" type="button" aria-label="添加标签" title="添加标签">${tagIcon()}</button></div></div></article>`;
+      ? `<a class="article-avatar asset-avatar" href="${escapeHtml(authorProfileUrl)}" target="_blank" rel="noreferrer" aria-label="打开 ${escapeHtml(authorName)} 的 X 主页">${avatar}</a>`
+      : `<div class="article-avatar asset-avatar" aria-hidden="true">${avatar}</div>`;
+    const tagEditor = state.assetTagEditor === asset.id ? `<div class="asset-tag-editor asset-menu-editor"><input data-asset-tag-input data-id="${escapeHtml(asset.id)}" type="text" placeholder="输入标签后回车" aria-label="添加标签"><button class="asset-icon-button" data-action="asset-add-tag" data-id="${escapeHtml(asset.id)}" type="button" aria-label="确认添加标签" title="确认添加标签">${addIcon()}</button></div>` : "";
+    const publishedLinks = publishedLinksForAsset(asset);
+    const editorOpen = state.assetTagEditor === asset.id;
+    const menu = state.candidateMenu === asset.id ? `<div class="candidate-menu asset-menu ${state.assetMenuPlacement === "up" ? "is-up" : ""}" ${editorOpen ? 'role="dialog" aria-label="素材编辑"' : 'role="menu"'}><a href="${escapeHtml(asset.sourceUrl)}" target="_blank" rel="noreferrer" ${editorOpen ? "" : 'role="menuitem"'}>打开原文</a><button data-action="asset-copy" data-id="${escapeHtml(asset.id)}" type="button" ${editorOpen ? "" : 'role="menuitem"'}>复制 Markdown</button><button data-action="asset-tag-editor" data-id="${escapeHtml(asset.id)}" type="button" ${editorOpen ? "" : 'role="menuitem"'}>编辑标签</button>${tagEditor}<button data-action="asset-publish-editor" data-id="${escapeHtml(asset.id)}" type="button" ${editorOpen ? "" : 'role="menuitem"'}>管理发布链接</button>${asset.usageStatus === "used" ? `<button data-action="asset-toggle-used" data-id="${escapeHtml(asset.id)}" type="button" ${editorOpen ? "" : 'role="menuitem"'}>标记为未使用</button>` : ""}<button data-action="asset-delete" data-id="${escapeHtml(asset.id)}" type="button" ${editorOpen ? "" : 'role="menuitem"'}>删除素材</button></div>` : "";
+    const platformLinks = publishedLinks.map((item) => `<a class="asset-platform-link is-${escapeHtml(item.platform)}" href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer" aria-label="打开${escapeHtml(platformLabel(item.platform))}笔记" title="打开${escapeHtml(platformLabel(item.platform))}笔记">${platformIcon(item.platform)}</a>`).join("");
+    const dates = [asset.publishedAt ? `发布于 ${escapeHtml(formatDate(asset.publishedAt))}` : "", asset.createdAt ? `收录于 ${escapeHtml(formatDate(asset.createdAt))}` : ""].filter(Boolean).join('<span aria-hidden="true"> · </span>');
+    const usage = asset.usageStatus === "used" ? "已使用" : "未使用";
+    const published = platformLinks ? `<span class="asset-published-label">已发布至</span><span class="asset-platform-links" aria-label="已发布平台">${platformLinks}</span>` : '<span class="asset-platform-links" aria-hidden="true"></span>';
+    const actions = `<footer class="asset-footer" aria-label="素材状态与操作"><span class="asset-usage-status ${asset.usageStatus === "used" ? "is-used" : ""}">${usage}</span>${published}<button class="asset-preview-action" data-action="asset-preview" data-id="${escapeHtml(asset.id)}" type="button">预览 Markdown</button>${asset.usageStatus === "unused" ? `<button class="primary-button asset-use-button" data-action="asset-toggle-used" data-id="${escapeHtml(asset.id)}" type="button">标记为已使用</button>` : ""}</footer>`;
+    return `<article class="article-post asset-post">${avatarMarkup}<div class="article-content"><div class="article-author asset-author"><strong>${authorNameMarkup}${verified}</strong>${authorHandleMarkup ? `<span class="article-handle">${authorHandleMarkup}</span>` : ""}${dates ? `<span class="article-date">· ${dates}</span>` : ""}<div class="asset-menu-anchor"><button class="article-more" data-action="asset-menu" data-id="${escapeHtml(asset.id)}" type="button" aria-label="素材操作" aria-expanded="${state.candidateMenu === asset.id}">${moreIcon()}</button>${menu}</div></div><div class="article-card asset-card">${cover}<div class="article-card-body asset-card-body"><a class="asset-title" href="${escapeHtml(asset.sourceUrl)}" target="_blank" rel="noreferrer">${escapeHtml(asset.title)}</a>${tags ? `<div class="asset-tags-row" aria-label="标签">${tags}</div>` : ""}</div></div>${actions}</div></article>`;
   };
   const dialogAsset = state.data.assets.find((asset) => asset.id === state.assetDialog?.id);
   const dialog = dialogAsset ? `<div class="asset-dialog-backdrop"><section class="asset-dialog" role="dialog" aria-modal="true" aria-labelledby="asset-dialog-title"><h2 id="asset-dialog-title">删除素材？</h2><p>删除后无法恢复。</p><div class="asset-dialog-actions"><button class="secondary-button" data-action="asset-dialog-cancel" type="button">取消</button><button class="danger-button" data-action="asset-dialog-confirm" data-id="${escapeHtml(dialogAsset.id)}" type="button">删除</button></div></section></div>` : "";
-  const assetTabs = [["all", "全部"], ["unused", "未使用"], ["used", "已用于创作"]].map(([filter, label]) => `<button class="${state.assetFilter === filter ? "is-active" : ""}" data-filter="${filter}" type="button" aria-label="${label} ${assetCounts[filter]} 篇">${label}<span class="candidate-date-count" aria-hidden="true">${assetCounts[filter]}</span></button>`).join("");
-  view.innerHTML = `<div class="context"><span>只保存你主动确认的 Markdown</span>${state.currentContext?.pageKind === "article" ? `<button class="link-button" data-action="save-current" type="button">保存并复制 Markdown</button>` : ""}</div><div class="asset-filters"><label class="panel-search"><span class="sr-only">搜索素材</span>${searchIcon()}<input data-asset-search type="search" placeholder="搜索标题、作者、@handle 或标签" value="${escapeHtml(state.assetQuery)}" aria-label="搜索素材"></label><div class="candidate-date-tabs asset-filter-tabs" role="group" aria-label="素材库分类筛选">${assetTabs}</div></div>${assets.length ? assets.map(assetCell).join("") : `<p class="empty">还没有已保存的素材。完成“保存并复制 Markdown”后，素材会出现在这里。</p>`}${dialog}`;
+  const publishDialogAsset = state.data.assets.find((asset) => asset.id === state.assetPublishDialog);
+  const publishDialogLinks = publishDialogAsset ? publishedLinksForAsset(publishDialogAsset) : [];
+  const publishDialog = publishDialogAsset ? `<div class="asset-dialog-backdrop"><section class="asset-dialog asset-publish-dialog" role="dialog" aria-modal="true" aria-labelledby="asset-publish-dialog-title"><div class="asset-publish-dialog-heading"><h2 id="asset-publish-dialog-title">管理发布链接</h2><button class="asset-dialog-close" data-action="asset-publish-cancel" type="button" aria-label="关闭">×</button></div><p>保存后会显示在素材卡的“已发布至”中；同一平台的新链接将替换旧链接。</p><div class="asset-publish-list" aria-label="已保存的发布链接">${publishDialogLinks.length ? publishDialogLinks.map((item) => `<div class="asset-publish-item"><span class="asset-platform-link is-${escapeHtml(item.platform)}" aria-hidden="true">${platformIcon(item.platform)}</span><a href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">${escapeHtml(platformLabel(item.platform))}</a><button class="link-button asset-publish-remove" data-action="asset-publish-remove" data-id="${escapeHtml(publishDialogAsset.id)}" data-platform="${escapeHtml(item.platform)}" type="button">移除</button></div>`).join("") : `<p class="asset-publish-empty">尚未添加发布链接</p>`}</div><label class="asset-publish-field"><span>发布链接</span><input data-asset-publish-input data-id="${escapeHtml(publishDialogAsset.id)}" type="url" inputmode="url" placeholder="粘贴小红书、Reddit、微信或 B 站链接" value="${escapeHtml(state.assetPublishDraft)}" aria-describedby="asset-publish-hint${state.assetPublishError ? " asset-publish-error" : ""}" aria-invalid="${Boolean(state.assetPublishError)}"></label><p class="asset-publish-hint" id="asset-publish-hint">仅支持公开的 HTTPS 链接。</p>${state.assetPublishError ? `<p class="asset-publish-error" id="asset-publish-error" role="alert">${escapeHtml(state.assetPublishError)}</p>` : ""}<div class="asset-dialog-actions"><button class="secondary-button" data-action="asset-publish-cancel" type="button">取消</button><button class="primary-button" data-action="asset-publish-save" data-id="${escapeHtml(publishDialogAsset.id)}" type="button">保存链接</button></div></section></div>` : "";
+  const imageAsset = state.data.assets.find((asset) => asset.id === state.assetImageDialog && asset.coverImageUrl);
+  const imageDialog = imageAsset ? `<div class="asset-image-backdrop" role="dialog" aria-modal="true" aria-label="${escapeHtml(imageAsset.title)} 封面"><img src="${escapeHtml(imageAsset.coverImageUrl)}" alt="${escapeHtml(imageAsset.title)} 封面" /><button class="asset-image-close" data-action="asset-image-close" type="button" aria-label="关闭封面查看">×</button></div>` : "";
+  const assetTabs = [["all", "全部"], ["unused", "未使用"], ["used", "已使用"]].map(([filter, label]) => `<button class="${state.assetFilter === filter ? "is-active" : ""}" data-filter="${filter}" type="button" aria-label="${label} ${assetCounts[filter]} 篇">${label}<span class="candidate-date-count" aria-hidden="true">${assetCounts[filter]}</span></button>`).join("");
+  view.innerHTML = `<div class="asset-filters"><label class="panel-search"><span class="sr-only">搜索素材</span>${searchIcon()}<input data-asset-search type="search" placeholder="搜索标题、作者、@handle 或标签" value="${escapeHtml(state.assetQuery)}" aria-label="搜索素材"></label><div class="candidate-date-tabs asset-filter-tabs" role="group" aria-label="素材库分类筛选">${assetTabs}</div></div>${assets.length ? assets.map(assetCell).join("") : `<p class="empty">还没有已保存的素材。请在 X 原文中保存 Markdown 后查看。</p>`}${dialog}${publishDialog}${imageDialog}`;
+}
+function layoutIcon(placement) {
+  if (placement === "left") return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M10 4v16"/></svg>';
+  if (placement === "right") return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M14 4v16"/></svg>';
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="m8 8 8 8m0-8-8 8"/></svg>';
+}
+function renderSettings() {
+  const options = [["left", "导航栏显示在左侧"], ["right", "导航栏显示在右侧"], ["hidden", "隐藏导航栏"]]
+    .map(([placement, label]) => `<button class="layout-option ${state.navigationPlacement === placement ? "is-active" : ""}" type="button" data-navigation-placement="${placement}" aria-label="${label}" title="${label}">${layoutIcon(placement)}</button>`).join("");
+  view.innerHTML = `<section class="settings-list" aria-label="界面设置"><h2>导航栏</h2><div class="layout-options" role="group" aria-label="导航栏位置">${options}</div></section>`;
 }
 function renderStats() {
   const range = dateRangeForFilter(state.statsDate);
@@ -365,27 +392,24 @@ function render() {
     tab.classList.toggle("is-active", isCurrentPage);
     tab.toggleAttribute("aria-current", isCurrentPage);
   });
-  pageHeader.hidden = ["candidates", "subscriptions", "assets"].includes(state.page);
-  pageTitle.textContent = { candidates: "收件箱", subscriptions: "关注作者", assets: "素材库", stats: "统计" }[state.page] || "收件箱";
+  app.classList.toggle("nav-right", state.navigationPlacement === "right");
+  app.classList.toggle("nav-hidden", state.navigationPlacement === "hidden");
+  app.classList.toggle("nav-restore-right", state.navigationPlacement === "hidden" && state.lastVisibleNavigationPlacement === "right");
+  renderNavigationBadges();
+  pageHeader.hidden = !["stats", "settings"].includes(state.page);
+  pageTitle.textContent = { candidates: "收件箱", subscriptions: "关注作者", assets: "素材库", stats: "统计", settings: "设置" }[state.page] || "收件箱";
   if (state.page === "candidates") renderCandidates();
   else if (state.page === "subscriptions") renderSubscriptions();
   else if (state.page === "stats") renderStats();
+  else if (state.page === "settings") renderSettings();
   else renderAssets();
-  renderCurrentContext();
 }
-async function saveCurrentExtraction(expectedCandidate = null) {
-  const tab = await activeTab();
-  if (!tab?.id || !validX(tab.url)) throw new Error("请先打开要保存的 X 原文。");
-  if (expectedCandidate && articleId(tab.url) !== articleId(expectedCandidate.sourceUrl)) throw new Error("请先打开此候选的 X 原文。");
-  const capture = await sendToContent(tab, { type: "capture-current-for-sidepanel" });
-  if (capture?.error) throw new Error(capture.error || "无法读取当前 X 内容。");
-  await navigator.clipboard.writeText(capture.content || "");
-  const result = await chrome.runtime.sendMessage({ type: "save-capture-to-library", capture });
-  if (result?.error) throw new Error(result.error);
-  await loadData();
-  setStatus(result?.existing ? "该素材已在素材库中，Markdown 已复制" : "已保存并复制 Markdown");
+async function setNavigationPlacement(placement) {
+  if (placement === "hidden") state.lastVisibleNavigationPlacement = state.navigationPlacement === "right" ? "right" : state.lastVisibleNavigationPlacement;
+  else state.lastVisibleNavigationPlacement = placement;
+  state.navigationPlacement = placement;
+  await chrome.storage.local.set({ [NAVIGATION_LAYOUT_STORAGE_KEY]: { placement, lastVisiblePlacement: state.lastVisibleNavigationPlacement } });
   render();
-  await refreshContext({ resetPage: false });
 }
 async function handleAction(action, target) {
   const idValue = target.dataset.id;
@@ -406,11 +430,12 @@ async function handleAction(action, target) {
     return;
   }
   const asset = state.data.assets.find((item) => item.id === idValue);
-  if (action === "save-current" || action === "context-save") return saveCurrentExtraction();
+  if (action === "navigation-restore") return setNavigationPlacement(state.lastVisibleNavigationPlacement);
+  if (action === "asset-image-close") { state.assetImageDialog = null; return render(); }
   if (action === "asset-menu") {
     const opens = state.candidateMenu !== idValue;
     state.candidateMenu = opens ? idValue : null;
-    state.assetMenuPlacement = opens && target.getBoundingClientRect().bottom + 150 > window.innerHeight ? "up" : "down";
+    state.assetMenuPlacement = opens && target.getBoundingClientRect().bottom + 320 > window.innerHeight ? "up" : "down";
     return render();
   }
   if (action === "asset-dialog-cancel") { state.assetDialog = null; return render(); }
@@ -423,10 +448,47 @@ async function handleAction(action, target) {
     await saveData();
     return render();
   }
+  if (action === "asset-publish-cancel") { state.assetPublishDialog = null; state.assetPublishDraft = ""; state.assetPublishError = ""; return render(); }
   if (!asset) return;
+  if (action === "asset-view-cover") { state.assetImageDialog = asset.id; return render(); }
+  if (action === "asset-preview") {
+    await chrome.storage.session.set({ "library-markdown-preview": { title: asset.title, markdown: asset.markdown, authorName: asset.authorName, authorHandle: asset.authorHandle, sourceUrl: asset.sourceUrl, publishedAt: asset.publishedAt } });
+    await chrome.tabs.create({ url: chrome.runtime.getURL("preview.html?mode=library") });
+    return;
+  }
   if (action === "asset-copy") { await navigator.clipboard.writeText(asset.markdown); setStatus("Markdown 已复制"); }
   if (action === "asset-toggle-used") { asset.usageStatus = asset.usageStatus === "used" ? "unused" : "used"; asset.updatedAt = new Date().toISOString(); state.candidateMenu = null; await saveData(); return render(); }
   if (action === "asset-tag-editor") { state.assetTagEditor = state.assetTagEditor === asset.id ? null : asset.id; return render(); }
+  if (action === "asset-publish-editor") { state.assetPublishDialog = asset.id; state.assetPublishDraft = ""; state.assetPublishError = ""; state.candidateMenu = null; state.assetTagEditor = null; return render(); }
+  if (action === "asset-publish-save") {
+    const input = target.closest(".asset-publish-dialog")?.querySelector("[data-asset-publish-input]");
+    const value = input?.value.trim() || "";
+    const publishedLink = platformForUrl(value);
+    if (!publishedLink) {
+      state.assetPublishDraft = value;
+      state.assetPublishError = "请输入小红书、Reddit、微信或 B 站的 HTTPS 链接";
+      render();
+      view.querySelector("[data-asset-publish-input]")?.focus();
+      return;
+    }
+    asset.publishedLinks = [...publishedLinksForAsset(asset).filter((item) => item.platform !== publishedLink.platform), publishedLink];
+    delete asset.xiaohongshuNoteUrl;
+    asset.updatedAt = new Date().toISOString();
+    state.assetPublishDialog = null;
+    state.assetPublishDraft = "";
+    state.assetPublishError = "";
+    await saveData();
+    setStatus(`${platformLabel(publishedLink.platform)}链接已保存`);
+    return render();
+  }
+  if (action === "asset-publish-remove") {
+    asset.publishedLinks = publishedLinksForAsset(asset).filter((item) => item.platform !== target.dataset.platform);
+    delete asset.xiaohongshuNoteUrl;
+    asset.updatedAt = new Date().toISOString();
+    await saveData();
+    setStatus("发布链接已移除");
+    return render();
+  }
   if (action === "asset-add-tag") {
     const input = target.closest(".asset-tag-editor")?.querySelector("[data-asset-tag-input]");
     const tag = input?.value.trim();
@@ -450,7 +512,9 @@ async function handleAction(action, target) {
 
 document.addEventListener("click", async (event) => {
   const viewButton = event.target.closest("[data-view]");
-  if (viewButton) { state.page = viewButton.dataset.view; render(); return; }
+  if (viewButton) { state.page = viewButton.dataset.view; await markNavigationViewed(state.page); render(); return; }
+  const navigationPlacement = event.target.closest("[data-navigation-placement]");
+  if (navigationPlacement) { await setNavigationPlacement(navigationPlacement.dataset.navigationPlacement); return; }
   const candidateSort = event.target.closest("[data-candidate-sort]");
   if (candidateSort) { state.candidateSort = candidateSort.dataset.candidateSort; renderCandidates(); return; }
   const candidateDate = event.target.closest("[data-candidate-date]");
@@ -480,6 +544,10 @@ view.addEventListener("input", (event) => {
     search?.focus();
     if (typeof cursor === "number") search?.setSelectionRange(cursor, cursor);
   }
+  if (event.target.matches("[data-asset-publish-input]")) {
+    state.assetPublishDraft = event.target.value;
+    state.assetPublishError = "";
+  }
   if (event.target.matches("[data-candidate-search]")) {
     const cursor = event.target.selectionStart;
     state.candidateQuery = event.target.value;
@@ -490,17 +558,20 @@ view.addEventListener("input", (event) => {
   }
 });
 view.addEventListener("compositionstart", (event) => {
-  if (event.target.matches("[data-asset-search], [data-candidate-search]")) event.target.dataset.composing = "true";
+  if (event.target.matches("[data-asset-search], [data-candidate-search], [data-asset-publish-input]")) event.target.dataset.composing = "true";
 });
 view.addEventListener("compositionend", (event) => {
-  if (!event.target.matches("[data-asset-search], [data-candidate-search]")) return;
+  if (!event.target.matches("[data-asset-search], [data-candidate-search], [data-asset-publish-input]")) return;
   event.target.dataset.composing = "false";
   event.target.dispatchEvent(new Event("input", { bubbles: true }));
 });
 view.addEventListener("keydown", (event) => {
-  if (event.key !== "Enter" || !event.target.matches("[data-asset-tag-input]")) return;
+  if (event.key !== "Enter" || !event.target.matches("[data-asset-tag-input], [data-asset-publish-input]")) return;
   event.preventDefault();
-  handleAction("asset-add-tag", event.target.closest(".asset-tag-editor")?.querySelector("[data-action='asset-add-tag']")).catch((error) => setStatus(error.message || "操作失败", "error"));
+  const isTagInput = event.target.matches("[data-asset-tag-input]");
+  const selector = isTagInput ? ".asset-tag-editor" : ".asset-publish-dialog";
+  const action = isTagInput ? "asset-add-tag" : "asset-publish-save";
+  handleAction(action, event.target.closest(selector)?.querySelector("[data-action]")).catch((error) => setStatus(error.message || "操作失败", "error"));
 });
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.type !== "capture-completed" || !message.sourceUrl) return;
@@ -510,11 +581,7 @@ chrome.runtime.onMessage.addListener((message) => {
   saveData().then(() => { if (state.page === "candidates") render(); setStatus("候选已标记为已提取"); }).catch(() => {});
 });
 chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName !== "local" || !changes[STORAGE_KEY]) return;
+  if (areaName !== "local" || (!changes[STORAGE_KEY] && !changes[NAVIGATION_BADGES_STORAGE_KEY] && !changes[NAVIGATION_LAYOUT_STORAGE_KEY])) return;
   loadData().then(() => render()).catch(() => {});
 });
-chrome.tabs.onActivated?.addListener(() => refreshContext({ resetPage: false }).catch(() => {}));
-chrome.tabs.onUpdated?.addListener((_tabId, changeInfo) => {
-  if (changeInfo.status === "complete") refreshContext({ resetPage: false }).catch(() => {});
-});
-loadData().then(async () => { render(); await refreshContext(); }).catch((error) => setStatus(error.message || "无法加载本地数据", "error"));
+loadData().then(() => render()).catch((error) => setStatus(error.message || "无法加载本地数据", "error"));

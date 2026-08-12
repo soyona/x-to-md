@@ -1,6 +1,6 @@
 :root {
   color-scheme: light;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: TwitterChirp, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: #0f1419;
   background: #fff;
 }
@@ -22,7 +22,7 @@ button.secondary { background: #eff3f4; color: #0f1419; }
 button:hover { filter: brightness(.94); }
 button:disabled { opacity: .55; cursor: wait; filter: none; }
 button:focus-visible, .preview-info a:focus-visible { outline: 3px solid #8ab4f8; outline-offset: 2px; }
-.preview-page { min-height: 100vh; }
+.preview-page { min-height: 100vh; background: #fff; }
 .preview-header {
   position: sticky;
   top: 0;
@@ -37,20 +37,28 @@ button:focus-visible, .preview-info a:focus-visible { outline: 3px solid #8ab4f8
   backdrop-filter: blur(8px);
 }
 .preview-actions { display: flex; gap: 8px; }
-.preview-heading { display: flex; align-items: baseline; gap: 10px; }
-.preview-heading strong { font-size: 15px; }
-.preview-heading span { color: #536471; font-size: 13px; }
-.preview-reader {
-  width: min(720px, 100%);
-  margin: 0 auto;
-  padding: 48px 24px 96px;
-  font-size: 20px;
-  line-height: 1.55;
+.preview-icon-button {
+  display: inline-grid;
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  min-height: 36px;
+  place-items: center;
+  padding: 0;
 }
+.preview-icon-button svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
+.preview-heading { display: flex; align-items: baseline; gap: 10px; }
+.preview-heading strong { font-size: 17px; }
+.preview-heading span { color: #536471; font-size: 13px; }
+.preview-reader { width: min(760px, 100%); margin: 0 auto; padding: 48px 24px 96px; font-size: 18px; line-height: 1.65; }
+.preview-reader.is-markdown { font-size: 17px; }
 .preview-reader h1 { margin: 0 0 32px; font-size: 40px; line-height: 1.2; }
-.preview-reader h2, .preview-reader h3 { line-height: 1.3; }
+.preview-reader h2 { margin: 38px 0 16px; font-size: 28px; line-height: 1.28; }
+.preview-reader h3 { margin: 28px 0 14px; font-size: 22px; line-height: 1.3; }
 .preview-reader p { margin: 0 0 28px; white-space: pre-wrap; }
 .preview-reader a { color: #1d9bf0; }
+.preview-reader ul, .preview-reader ol { margin: 0 0 28px; padding-left: 28px; }
+.preview-reader li { margin: 8px 0; }
 .preview-reader blockquote { margin: 0 0 24px; border-left: 4px solid #cfd9de; padding-left: 24px; color: #536471; }
 .preview-code { overflow: hidden; margin: 0 0 28px; border-radius: 12px; background: #f7f9f9; }
 .preview-code-header { display: flex; align-items: center; justify-content: space-between; min-height: 48px; padding: 0 16px; background: #e8edef; font: 15px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -58,6 +66,7 @@ button:focus-visible, .preview-info a:focus-visible { outline: 3px solid #8ab4f8
 .preview-code-copy:hover { background: rgba(15, 20, 25, .08); filter: none; }
 .preview-reader pre { overflow: auto; margin: 0; padding: 16px; background: transparent; font: 15px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .preview-reader code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.preview-reader :not(pre) > code { padding: 2px 5px; border-radius: 4px; background: #f1f3f4; font-size: .88em; }
 .preview-reader hr { margin: 36px 0; border: 0; border-top: 1px solid #eff3f4; }
 .preview-reader img { display: block; max-width: 100%; height: auto; margin: 0 auto 28px; border-radius: 12px; }
 .preview-info { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin: 0 0 32px; color: #536471; font-size: 13px; line-height: 1.5; }
@@ -70,6 +79,5 @@ button:focus-visible, .preview-info a:focus-visible { outline: 3px solid #8ab4f8
   .preview-heading { align-items: flex-start; flex-direction: column; gap: 4px; }
   .preview-reader { padding: 28px 16px 72px; font-size: 18px; }
   .preview-reader h1 { font-size: 32px; }
-  .preview-actions { width: 100%; }
-  .preview-actions button { flex: 1; }
+  .preview-actions { align-self: flex-end; }
 }

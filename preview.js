@@ -1,6 +1,8 @@
 const article = document.querySelector("#article");
 const status = document.querySelector("#status");
 const copyButton = document.querySelector("#copy");
+const previewTitle = document.querySelector("#preview-title");
+const previewSubtitle = document.querySelector("#preview-subtitle");
 let capture = null;
 
 function text(value) {
@@ -50,6 +52,8 @@ function renderBlock(block) {
 
 function renderCapture(value) {
   capture = value;
+  previewTitle.textContent = "提取的 Markdown";
+  previewSubtitle.textContent = "已复制 · 原文语义预览";
   const blocks = Array.isArray(value.blocks) ? value.blocks : [];
   const metadata = [value.authorName, value.authorHandle ? `@${value.authorHandle.replace(/^@/u, "")}` : "", value.publishedAt].filter(Boolean).join(" · ");
   const sourceUrl = /^https:\/\/(?:www\.)?(?:x|twitter)\.com\//u.test(value.sourceUrl || "") ? value.sourceUrl : "";
@@ -60,12 +64,104 @@ function renderCapture(value) {
   document.title = value.title || "X Article Preview";
 }
 
+function formatPreviewDate(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.valueOf()) ? text(value) : `${date.getMonth() + 1}/${date.getDate()}/${date.getFullYear()}`;
+}
+
+function authorProfileUrl(handle) {
+  const normalizedHandle = text(handle).replace(/^@/u, "");
+  return /^[A-Za-z0-9_]{1,15}$/u.test(normalizedHandle) ? `https://x.com/${normalizedHandle}` : "";
+}
+
+function libraryMetadata(value) {
+  const profileUrl = authorProfileUrl(value.authorHandle);
+  const authorName = text(value.authorName);
+  const handle = text(value.authorHandle).replace(/^@/u, "");
+  const author = profileUrl
+    ? `<a href="${escapeHtml(profileUrl)}" target="_blank" rel="noreferrer" aria-label="打开 ${escapeHtml(authorName || `@${handle}`)} 的 X 主页">${escapeHtml(authorName || `@${handle}`)}${handle ? ` @${escapeHtml(handle)}` : ""}</a>`
+    : escapeHtml([authorName, handle ? `@${handle}` : ""].filter(Boolean).join(" "));
+  const publishedAt = value.publishedAt ? formatPreviewDate(value.publishedAt) : "";
+  return [author, publishedAt ? `<span>${escapeHtml(publishedAt)}</span>` : ""].filter(Boolean).join(" · ");
+}
+
+function markdownInline(value) {
+  return escapeHtml(value)
+    .replace(/`([^`]+)`/gu, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/gu, "<strong>$1</strong>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/gu, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+}
+
+function renderMarkdown(markdown, title = "") {
+  const lines = text(markdown).replaceAll("\r\n", "\n").split("\n");
+  const output = [];
+  let codeLines = [];
+  let codeLanguage = "";
+  let inCode = false;
+  let listType = "";
+  const closeList = () => { if (listType) output.push(`</${listType}>`); listType = ""; };
+  const closeCode = () => {
+    if (!codeLines.length && !codeLanguage) return;
+    output.push(`<div class="preview-code"><div class="preview-code-header"><span>${escapeHtml(codeLanguage)}</span></div><pre><code>${escapeHtml(codeLines.join("\n"))}</code></pre></div>`);
+    codeLines = [];
+    codeLanguage = "";
+    inCode = false;
+  };
+  const firstContentLine = lines.findIndex((line) => line.trim());
+  const titleHeading = firstContentLine >= 0 ? /^#\s+(.+)$/u.exec(lines[firstContentLine]) : null;
+  if (titleHeading && text(titleHeading[1]).trim() === text(title).trim()) lines.splice(firstContentLine, 1);
+  if (text(title).trim()) output.push(`<h1>${escapeHtml(title)}</h1>`);
+  lines.forEach((line) => {
+    const fence = /^```([^\s]*)\s*$/u.exec(line);
+    if (fence) {
+      if (inCode) closeCode();
+      else { inCode = true; codeLanguage = fence[1] || ""; }
+      return;
+    }
+    if (inCode) { codeLines.push(line); return; }
+    const heading = /^(#{1,3})\s+(.+)$/u.exec(line);
+    const list = /^\s*([-*+] |\d+\. )(.+)$/u.exec(line);
+    if (heading) { closeList(); const level = heading[1].length; output.push(`<h${level}>${markdownInline(heading[2])}</h${level}>`); return; }
+    if (/^\s*([-*_])\1\1+\s*$/u.test(line)) { closeList(); output.push("<hr>"); return; }
+    if (line.startsWith("> ")) { closeList(); output.push(`<blockquote>${markdownInline(line.slice(2))}</blockquote>`); return; }
+    if (list) {
+      const nextType = /^\d+\./u.test(list[1]) ? "ol" : "ul";
+      if (nextType !== listType) { closeList(); listType = nextType; output.push(`<${listType}>`); }
+      output.push(`<li>${markdownInline(list[2])}</li>`);
+      return;
+    }
+    closeList();
+    if (line.trim()) output.push(`<p>${markdownInline(line)}</p>`);
+  });
+  closeCode();
+  closeList();
+  return output.join("") || '<p class="empty">这篇素材没有可预览的 Markdown 内容。</p>';
+}
+
+function renderLibraryMarkdown(value) {
+  capture = { blocks: [], content: value.markdown || "" };
+  previewTitle.textContent = "Markdown 预览";
+  previewSubtitle.textContent = "仅在此设备临时展示";
+  const metadata = libraryMetadata(value);
+  const sourceUrl = /^https:\/\/(?:www\.)?(?:x|twitter)\.com\//u.test(value.sourceUrl || "") ? value.sourceUrl : "";
+  const sourceLink = sourceUrl ? `<a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noreferrer">打开 X 原文</a>` : "";
+  article.classList.add("is-markdown");
+  article.innerHTML = `<div class="preview-info"><span>Markdown 阅读视图</span>${metadata}${sourceLink}</div>${renderMarkdown(value.markdown, value.title)}`;
+  copyButton.disabled = false;
+  copyButton.setAttribute("aria-label", "复制 Markdown");
+  copyButton.title = "复制 Markdown";
+  document.title = `${value.title || "Markdown"} · 预览`;
+}
+
 async function loadCapture() {
   try {
-    const result = await chrome.storage.session.get("latest-capture");
-    await chrome.storage.session.remove("latest-capture");
-    if (!result["latest-capture"]) throw new Error("This preview has expired. Return to X and extract the content again.");
-    renderCapture(result["latest-capture"]);
+    const libraryMode = new URLSearchParams(location.search).get("mode") === "library";
+    const key = libraryMode ? "library-markdown-preview" : "latest-capture";
+    const result = await chrome.storage.session.get(key);
+    await chrome.storage.session.remove(key);
+    if (!result[key]) throw new Error(libraryMode ? "预览已过期，请返回素材库重新打开。" : "This preview has expired. Return to X and extract the content again.");
+    if (libraryMode) renderLibraryMarkdown(result[key]);
+    else renderCapture(result[key]);
   } catch (error) {
     article.innerHTML = `<p class="empty">${escapeHtml(error.message || "Failed to load the preview.")}</p>`;
     status.textContent = "Preview unavailable";
@@ -75,8 +171,10 @@ async function loadCapture() {
 copyButton.addEventListener("click", async () => {
   if (!capture) return;
   try {
-    await navigator.clipboard.writeText(globalThis.XToXhsMarkdown.blocksToMarkdown(capture.blocks, { includeImages: false }));
-    copyButton.textContent = "Copied";
+    const markdown = capture.content || globalThis.XToXhsMarkdown.blocksToMarkdown(capture.blocks, { includeImages: false });
+    await navigator.clipboard.writeText(markdown);
+    copyButton.setAttribute("aria-label", "Markdown 已复制");
+    copyButton.title = "Markdown 已复制";
     status.textContent = "Markdown copied (images excluded)";
   } catch {
     status.textContent = "Copy failed. Check clipboard permissions.";
