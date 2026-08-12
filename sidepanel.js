@@ -360,7 +360,11 @@ function renderStats() {
   view.innerHTML = `<div class="stats-filters" role="group" aria-label="统计日期范围">${dateTabs}</div><section class="stats-summary" aria-label="统计摘要"><div><span>本范围新增</span><strong>${total}</strong><small>${escapeHtml(range.label)}</small></div><div><span>当前待处理</span><strong>${pending}</strong><small>未移除或未保存</small></div></section>${total ? renderStatsChart() : `<p class="empty stats-empty">${escapeHtml(range.label)}还没有新增 Article。</p>`}`;
 }
 function render() {
-  document.querySelectorAll("[data-view]").forEach((tab) => tab.classList.toggle("is-active", tab.dataset.view === state.page));
+  document.querySelectorAll("[data-view]").forEach((tab) => {
+    const isCurrentPage = tab.dataset.view === state.page;
+    tab.classList.toggle("is-active", isCurrentPage);
+    tab.toggleAttribute("aria-current", isCurrentPage);
+  });
   pageHeader.hidden = ["candidates", "subscriptions", "assets"].includes(state.page);
   pageTitle.textContent = { candidates: "收件箱", subscriptions: "关注作者", assets: "素材库", stats: "统计" }[state.page] || "收件箱";
   if (state.page === "candidates") renderCandidates();

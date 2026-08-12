@@ -494,3 +494,15 @@ test("Popup 与预览页保留清晰的成功、边界和来源反馈", () => {
   assert.match(popup, /align-items: center; justify-content: center/u);
   assert.doesNotMatch(contentScript, /已复制 Markdown，并进入 X 原生预览/u);
 });
+
+test("当前页导航图标使用实心 X 蓝色", () => {
+  const html = readFileSync(new URL("../sidepanel.html", import.meta.url), "utf8");
+  const script = readFileSync(new URL("../sidepanel.js", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../sidepanel.css", import.meta.url), "utf8");
+
+  assert.match(script, /const isCurrentPage = tab\.dataset\.view === state\.page/u);
+  assert.match(script, /tab\.toggleAttribute\("aria-current", isCurrentPage\)/u);
+  assert.match(css, /\.tab\.is-active \{[^}]*color: var\(--x-blue\)/u);
+  assert.match(css, /\.tab\.is-active svg \{[^}]*fill: currentColor[^}]*stroke: none/u);
+  assert.match(html, /data-view="stats"[\s\S]*?<rect x="3\.5"/u);
+});

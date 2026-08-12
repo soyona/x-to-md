@@ -207,7 +207,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .tab svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.9; }
 .tab[data-view="assets"] svg { fill: currentColor; stroke-width: 1.2; }
 .tab:hover { background: var(--x-hover); color: var(--x-primary); }
-.tab.is-active { background: transparent; color: var(--x-primary); }
+.tab.is-active { background: transparent; color: var(--x-blue); }
+.tab.is-active svg { fill: currentColor; stroke: none; }
 .tab-more { margin-top: auto; }
 @media (max-width: 520px) { .article-post { padding-right: 16px; padding-left: 16px; } .article-author .article-handle { max-width: 34%; } .article-engagement-item { gap: 3px; } }
 @media (max-width: 340px) { .tabbar { flex-basis: 56px; } .tab { width: 44px; height: 44px; } .tab svg { width: 24px; height: 24px; } .page-header { padding-inline: 12px; } }
