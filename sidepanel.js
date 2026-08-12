@@ -16,6 +16,9 @@ const state = {
   assetFilter: "all",
   assetQuery: "",
   candidateMenu: null,
+  assetMenuPlacement: "down",
+  assetTagEditor: null,
+  assetDialog: null,
   currentContext: null,
 };
 
@@ -230,6 +233,28 @@ function avatarLabel(candidate) {
   const name = candidate.authorName || candidate.authorHandle || "X";
   return Array.from(name.replace(/^@/u, "").trim()).slice(0, 2).join("").toUpperCase();
 }
+function profileUrl(handle) {
+  const normalizedHandle = String(handle || "").replace(/^@/u, "").trim();
+  return normalizedHandle ? `https://x.com/${encodeURIComponent(normalizedHandle)}` : "";
+}
+function copyIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 5.5h10v13h-10zM5.5 18.5h-1v-13h10v1"/></svg>';
+}
+function moreIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 12a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zm6.5 0a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zm6.5 0a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z"/></svg>';
+}
+function searchIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.25 3.75a6.5 6.5 0 1 0 5.262 10.324l4.781 4.781 1.414-1.414-4.781-4.781A6.5 6.5 0 0 0 10.25 3.75z"/></svg>';
+}
+function tagIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 13.5 13.5 20.5l-10-10v-7h7zM8 8h.01"/></svg>';
+}
+function usedIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.2 4.2L19 7.5"/></svg>';
+}
+function addIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
+}
 function xIcon(icon) {
   if (!icon?.paths?.length) return "";
   return `<svg class="article-icon" viewBox="${escapeHtml(icon.viewBox)}" aria-hidden="true">${icon.paths.map((path) => `<path d="${escapeHtml(path)}"></path>`).join("")}</svg>`;
@@ -268,7 +293,7 @@ function renderCandidates() {
     const count = candidateCountForDate(date);
     return `<button class="${state.candidateDate === date ? "is-active" : ""}" data-candidate-date="${date}" type="button" aria-label="${label} ${count} 篇">${label}<span class="candidate-date-count" aria-hidden="true">${count}</span></button>`;
   }).join("");
-  const filters = `<div class="candidate-filters"><label class="candidate-search"><span class="sr-only">搜索收件箱</span><span aria-hidden="true">⌕</span><input data-candidate-search type="search" placeholder="搜索收件箱" value="${escapeHtml(state.candidateQuery)}" aria-label="搜索收件箱"></label><div class="candidate-date-row"><div class="candidate-date-tabs" role="group" aria-label="收件箱日期筛选">${dateTabs}</div><div class="candidate-sort" role="group" aria-label="收件箱排序"><button class="${state.candidateSort === "addedAt" ? "is-active" : ""}" data-candidate-sort="addedAt" type="button">最近添加</button><button class="${state.candidateSort === "publishedAt" ? "is-active" : ""}" data-candidate-sort="publishedAt" type="button">最新发表</button></div></div></div>`;
+  const filters = `<div class="candidate-filters"><label class="panel-search"><span class="sr-only">搜索收件箱</span>${searchIcon()}<input data-candidate-search type="search" placeholder="搜索标题、作者或 @handle" value="${escapeHtml(state.candidateQuery)}" aria-label="搜索收件箱"></label><div class="candidate-date-row"><div class="candidate-date-tabs" role="group" aria-label="收件箱日期筛选">${dateTabs}</div><div class="candidate-sort" role="group" aria-label="收件箱排序"><button class="${state.candidateSort === "addedAt" ? "is-active" : ""}" data-candidate-sort="addedAt" type="button">最近添加</button><button class="${state.candidateSort === "publishedAt" ? "is-active" : ""}" data-candidate-sort="publishedAt" type="button">最新发表</button></div></div></div>`;
   const emptyMessage = hasCandidates ? "当前筛选条件下没有匹配的 Article。" : "还没有候选 Article。前往关注作者，打开作者的 Articles 页面并手动获取。";
   view.innerHTML = `${filters}${candidates.length ? candidates.map(candidateCell).join("") : `<p class="empty">${emptyMessage}</p>`}`;
 }
@@ -289,19 +314,41 @@ function renderSubscriptions() {
 }
 function renderAssets() {
   const query = state.assetQuery.trim().toLowerCase();
-  const assets = state.data.assets.filter((asset) => (state.assetFilter === "all" || (state.assetFilter === "unused" && asset.usageStatus === "unused") || (state.assetFilter === "used" && asset.usageStatus === "used")) && (!query || `${asset.title} ${asset.authorName} ${asset.authorHandle} ${asset.tags?.join(" ")} ${asset.note}`.toLowerCase().includes(query)));
+  const assetCounts = {
+    all: state.data.assets.length,
+    unused: state.data.assets.filter((asset) => asset.usageStatus === "unused").length,
+    used: state.data.assets.filter((asset) => asset.usageStatus === "used").length,
+  };
+  const assets = state.data.assets.filter((asset) => (state.assetFilter === "all" || (state.assetFilter === "unused" && asset.usageStatus === "unused") || (state.assetFilter === "used" && asset.usageStatus === "used")) && (!query || `${asset.title} ${asset.authorName} ${asset.authorHandle} ${asset.tags?.join(" ")}`.toLowerCase().includes(query)));
   const assetCell = (asset) => {
     const authorName = asset.authorName || asset.authorHandle || "未知作者";
-    const author = `${authorName}${asset.authorHandle && asset.authorHandle !== authorName ? ` · ${asset.authorHandle}` : ""}`;
+    const authorProfileUrl = profileUrl(asset.authorHandle);
+    const avatar = asset.authorAvatarUrl
+      ? `<img src="${escapeHtml(asset.authorAvatarUrl)}" alt="" />`
+      : escapeHtml(avatarLabel(asset));
+    const authorNameMarkup = authorProfileUrl
+      ? `<a href="${escapeHtml(authorProfileUrl)}" target="_blank" rel="noreferrer">${escapeHtml(authorName)}</a>`
+      : `<span>${escapeHtml(authorName)}</span>`;
+    const authorHandleMarkup = asset.authorHandle && asset.authorHandle !== authorName
+      ? authorProfileUrl ? `<a href="${escapeHtml(authorProfileUrl)}" target="_blank" rel="noreferrer">${escapeHtml(asset.authorHandle)}</a>` : `<span>${escapeHtml(asset.authorHandle)}</span>`
+      : "";
     const cover = asset.coverImageUrl
       ? `<img src="${escapeHtml(asset.coverImageUrl)}" alt="" />`
       : `<span class="asset-cover-placeholder" aria-hidden="true">𝕏<br>Article</span>`;
     const fallbackExcerpt = !asset.coverImageUrl && asset.previewExcerpt ? `<p class="asset-excerpt">${escapeHtml(asset.previewExcerpt)}</p>` : "";
     const verified = asset.authorVerified ? verifiedBadge() : "";
-    const tags = asset.tags?.length ? `<span>${escapeHtml(asset.tags.join("、"))}</span>` : "";
-    return `<article class="asset-cell"><a class="asset-cover" href="${escapeHtml(asset.sourceUrl)}" target="_blank" rel="noreferrer" aria-label="打开 ${escapeHtml(asset.title)} 原文">${cover}</a><div class="asset-content"><div class="asset-heading"><a class="asset-title" href="${escapeHtml(asset.sourceUrl)}" target="_blank" rel="noreferrer">${escapeHtml(asset.title)}</a><button class="article-more" data-action="asset-menu" data-id="${escapeHtml(asset.id)}" type="button" aria-label="素材操作">•••</button></div><div class="asset-byline"><span>${escapeHtml(author)}${verified}</span>${asset.publishedAt ? `<span>· 发布于 ${escapeHtml(formatDate(asset.publishedAt))}</span>` : ""}</div>${fallbackExcerpt}<div class="asset-meta"><span>${asset.usageStatus === "used" ? "已用于创作" : "未使用"}</span>${tags}<span>保存于 ${escapeHtml(formatDate(asset.createdAt))}</span></div><div class="cell-actions"><button class="link-button" data-action="asset-copy" data-id="${escapeHtml(asset.id)}" type="button">复制 Markdown</button>${state.candidateMenu === asset.id ? `<div class="candidate-menu asset-menu" role="menu"><button data-action="asset-open" data-id="${escapeHtml(asset.id)}" type="button" role="menuitem">打开原文</button><button data-action="asset-edit" data-id="${escapeHtml(asset.id)}" type="button" role="menuitem">编辑标签/备注</button><button data-action="asset-toggle-used" data-id="${escapeHtml(asset.id)}" type="button" role="menuitem">${asset.usageStatus === "used" ? "标记未使用" : "标记已用于创作"}</button><button data-action="asset-delete" data-id="${escapeHtml(asset.id)}" type="button" role="menuitem">删除素材</button></div>` : ""}</div></div></article>`;
+    const tags = (asset.tags || []).map((tag) => `<span class="asset-tag"><span>${escapeHtml(tag)}</span><button data-action="asset-remove-tag" data-id="${escapeHtml(asset.id)}" data-tag="${escapeHtml(tag)}" type="button" aria-label="删除标签 ${escapeHtml(tag)}" title="删除标签">×</button></span>`).join("");
+    const menu = state.candidateMenu === asset.id ? `<div class="candidate-menu asset-menu ${state.assetMenuPlacement === "up" ? "is-up" : ""}" role="menu"><button data-action="asset-delete" data-id="${escapeHtml(asset.id)}" type="button" role="menuitem">删除素材</button></div>` : "";
+    const avatarMarkup = authorProfileUrl
+      ? `<a class="asset-avatar" href="${escapeHtml(authorProfileUrl)}" target="_blank" rel="noreferrer" aria-label="打开 ${escapeHtml(authorName)} 的 X 主页">${avatar}</a>`
+      : `<div class="asset-avatar" aria-hidden="true">${avatar}</div>`;
+    const tagEditor = state.assetTagEditor === asset.id ? `<div class="asset-tag-editor"><input data-asset-tag-input data-id="${escapeHtml(asset.id)}" type="text" placeholder="输入标签后回车" aria-label="添加标签"><button class="asset-icon-button" data-action="asset-add-tag" data-id="${escapeHtml(asset.id)}" type="button" aria-label="确认添加标签" title="确认添加标签">${addIcon()}</button></div>` : "";
+    return `<article class="asset-cell"><a class="asset-cover" href="${escapeHtml(asset.sourceUrl)}" target="_blank" rel="noreferrer" aria-label="打开 ${escapeHtml(asset.title)} 原文">${cover}</a><div class="asset-content"><div class="asset-heading">${avatarMarkup}<div class="asset-heading-copy"><a class="asset-title" href="${escapeHtml(asset.sourceUrl)}" target="_blank" rel="noreferrer">${escapeHtml(asset.title)}</a><div class="asset-byline">${authorNameMarkup}${verified}${authorHandleMarkup}${asset.publishedAt ? `<span>· 发布于 ${escapeHtml(formatDate(asset.publishedAt))}</span>` : ""}</div></div><div class="asset-menu-anchor"><button class="article-more" data-action="asset-menu" data-id="${escapeHtml(asset.id)}" type="button" aria-label="素材操作" aria-expanded="${state.candidateMenu === asset.id}">${moreIcon()}</button>${menu}</div></div>${fallbackExcerpt}<div class="asset-meta"><span>${asset.usageStatus === "used" ? "已用于创作" : "未使用"}</span><span>保存于 ${escapeHtml(formatDate(asset.createdAt))}</span></div>${tags || tagEditor ? `<div class="asset-tags-row" aria-label="标签">${tags}${tagEditor}</div>` : ""}<div class="cell-actions"><button class="asset-icon-button" data-action="asset-copy" data-id="${escapeHtml(asset.id)}" type="button" aria-label="复制 Markdown" title="复制 Markdown">${copyIcon()}</button><button class="asset-icon-button ${asset.usageStatus === "used" ? "is-active" : ""}" data-action="asset-toggle-used" data-id="${escapeHtml(asset.id)}" type="button" aria-label="${asset.usageStatus === "used" ? "标记未使用" : "标记已用于创作"}" title="${asset.usageStatus === "used" ? "标记未使用" : "标记已用于创作"}">${usedIcon()}</button><button class="asset-icon-button ${state.assetTagEditor === asset.id ? "is-active" : ""}" data-action="asset-tag-editor" data-id="${escapeHtml(asset.id)}" type="button" aria-label="添加标签" title="添加标签">${tagIcon()}</button></div></div></article>`;
   };
-  view.innerHTML = `<div class="context"><span>只保存你主动确认的 Markdown</span>${state.currentContext?.pageKind === "article" ? `<button class="link-button" data-action="save-current" type="button">保存并复制 Markdown</button>` : ""}</div><input class="search" data-asset-search type="search" placeholder="搜索素材" value="${escapeHtml(state.assetQuery)}" aria-label="搜索素材"><div class="tabs"><button class="filter-tab ${state.assetFilter === "all" ? "is-active" : ""}" data-filter="all" type="button">全部</button><button class="filter-tab ${state.assetFilter === "unused" ? "is-active" : ""}" data-filter="unused" type="button">未使用</button><button class="filter-tab ${state.assetFilter === "used" ? "is-active" : ""}" data-filter="used" type="button">已用于创作</button></div>${assets.length ? assets.map(assetCell).join("") : `<p class="empty">还没有已保存的素材。完成“保存并复制 Markdown”后，素材会出现在这里。</p>`}`;
+  const dialogAsset = state.data.assets.find((asset) => asset.id === state.assetDialog?.id);
+  const dialog = dialogAsset ? `<div class="asset-dialog-backdrop"><section class="asset-dialog" role="dialog" aria-modal="true" aria-labelledby="asset-dialog-title"><h2 id="asset-dialog-title">删除素材？</h2><p>删除后无法恢复。</p><div class="asset-dialog-actions"><button class="secondary-button" data-action="asset-dialog-cancel" type="button">取消</button><button class="danger-button" data-action="asset-dialog-confirm" data-id="${escapeHtml(dialogAsset.id)}" type="button">删除</button></div></section></div>` : "";
+  const assetTabs = [["all", "全部"], ["unused", "未使用"], ["used", "已用于创作"]].map(([filter, label]) => `<button class="filter-tab ${state.assetFilter === filter ? "is-active" : ""}" data-filter="${filter}" type="button" aria-label="${label} ${assetCounts[filter]} 篇">${label}<span class="candidate-date-count" aria-hidden="true">${assetCounts[filter]}</span></button>`).join("");
+  view.innerHTML = `<div class="context"><span>只保存你主动确认的 Markdown</span>${state.currentContext?.pageKind === "article" ? `<button class="link-button" data-action="save-current" type="button">保存并复制 Markdown</button>` : ""}</div><div class="asset-filters"><label class="panel-search"><span class="sr-only">搜索素材</span>${searchIcon()}<input data-asset-search type="search" placeholder="搜索标题、作者、@handle 或标签" value="${escapeHtml(state.assetQuery)}" aria-label="搜索素材"></label></div><div class="tabs">${assetTabs}</div>${assets.length ? assets.map(assetCell).join("") : `<p class="empty">还没有已保存的素材。完成“保存并复制 Markdown”后，素材会出现在这里。</p>`}${dialog}`;
 }
 function renderStats() {
   const range = dateRangeForFilter(state.statsDate);
@@ -356,13 +403,45 @@ async function handleAction(action, target) {
   }
   const asset = state.data.assets.find((item) => item.id === idValue);
   if (action === "save-current" || action === "context-save") return saveCurrentExtraction();
-  if (action === "asset-menu") { state.candidateMenu = state.candidateMenu === idValue ? null : idValue; return render(); }
+  if (action === "asset-menu") {
+    const opens = state.candidateMenu !== idValue;
+    state.candidateMenu = opens ? idValue : null;
+    state.assetMenuPlacement = opens && target.getBoundingClientRect().bottom + 150 > window.innerHeight ? "up" : "down";
+    return render();
+  }
+  if (action === "asset-dialog-cancel") { state.assetDialog = null; return render(); }
+  if (action === "asset-dialog-confirm") {
+    const dialogAsset = state.data.assets.find((item) => item.id === idValue);
+    if (!dialogAsset || !state.assetDialog) return;
+    state.data.assets = state.data.assets.filter((item) => item.id !== idValue);
+    state.assetDialog = null;
+    state.candidateMenu = null;
+    await saveData();
+    return render();
+  }
   if (!asset) return;
   if (action === "asset-copy") { await navigator.clipboard.writeText(asset.markdown); setStatus("Markdown 已复制"); }
-  if (action === "asset-open") { window.open(asset.sourceUrl, "_blank"); }
-  if (action === "asset-edit") { asset.tags = (prompt("标签（用逗号分隔）", asset.tags.join(",")) || "").split(",").map((value) => value.trim()).filter(Boolean); asset.note = prompt("备注", asset.note) || ""; asset.updatedAt = new Date().toISOString(); await saveData(); return render(); }
-  if (action === "asset-toggle-used") { asset.usageStatus = asset.usageStatus === "used" ? "unused" : "used"; asset.updatedAt = new Date().toISOString(); await saveData(); return render(); }
-  if (action === "asset-delete" && confirm("删除素材？删除后无法恢复。")) { state.data.assets = state.data.assets.filter((item) => item.id !== idValue); await saveData(); render(); }
+  if (action === "asset-toggle-used") { asset.usageStatus = asset.usageStatus === "used" ? "unused" : "used"; asset.updatedAt = new Date().toISOString(); state.candidateMenu = null; await saveData(); return render(); }
+  if (action === "asset-tag-editor") { state.assetTagEditor = state.assetTagEditor === asset.id ? null : asset.id; return render(); }
+  if (action === "asset-add-tag") {
+    const input = target.closest(".asset-tag-editor")?.querySelector("[data-asset-tag-input]");
+    const tag = input?.value.trim();
+    if (!tag) { input?.focus(); return; }
+    const tags = asset.tags || [];
+    if (tags.some((value) => value.toLowerCase() === tag.toLowerCase())) { setStatus("标签已存在"); input?.focus(); return; }
+    asset.tags = [...tags, tag];
+    asset.updatedAt = new Date().toISOString();
+    state.assetTagEditor = null;
+    await saveData();
+    return render();
+  }
+  if (action === "asset-remove-tag") {
+    asset.tags = (asset.tags || []).filter((tag) => tag !== target.dataset.tag);
+    asset.updatedAt = new Date().toISOString();
+    await saveData();
+    return render();
+  }
+  if (action === "asset-delete") { state.assetDialog = { id: asset.id, type: "delete" }; state.candidateMenu = null; return render(); }
 }
 
 document.addEventListener("click", async (event) => {
@@ -388,8 +467,36 @@ document.addEventListener("click", async (event) => {
 });
 backButton.addEventListener("click", () => { if (state.page !== "candidates") { state.page = "candidates"; render(); } });
 view.addEventListener("input", (event) => {
-  if (event.target.matches("[data-asset-search]")) { state.assetQuery = event.target.value; renderAssets(); }
-  if (event.target.matches("[data-candidate-search]")) { state.candidateQuery = event.target.value; renderCandidates(); view.querySelector("[data-candidate-search]")?.focus(); }
+  if (event.isComposing || event.target.dataset.composing === "true") return;
+  if (event.target.matches("[data-asset-search]")) {
+    const cursor = event.target.selectionStart;
+    state.assetQuery = event.target.value;
+    renderAssets();
+    const search = view.querySelector("[data-asset-search]");
+    search?.focus();
+    if (typeof cursor === "number") search?.setSelectionRange(cursor, cursor);
+  }
+  if (event.target.matches("[data-candidate-search]")) {
+    const cursor = event.target.selectionStart;
+    state.candidateQuery = event.target.value;
+    renderCandidates();
+    const search = view.querySelector("[data-candidate-search]");
+    search?.focus();
+    if (typeof cursor === "number") search?.setSelectionRange(cursor, cursor);
+  }
+});
+view.addEventListener("compositionstart", (event) => {
+  if (event.target.matches("[data-asset-search], [data-candidate-search]")) event.target.dataset.composing = "true";
+});
+view.addEventListener("compositionend", (event) => {
+  if (!event.target.matches("[data-asset-search], [data-candidate-search]")) return;
+  event.target.dataset.composing = "false";
+  event.target.dispatchEvent(new Event("input", { bubbles: true }));
+});
+view.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" || !event.target.matches("[data-asset-tag-input]")) return;
+  event.preventDefault();
+  handleAction("asset-add-tag", event.target.closest(".asset-tag-editor")?.querySelector("[data-action='asset-add-tag']")).catch((error) => setStatus(error.message || "操作失败", "error"));
 });
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.type !== "capture-completed" || !message.sourceUrl) return;
