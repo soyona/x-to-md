@@ -5,12 +5,8 @@
 ## 当前待办
 
 - [ ] 在下一次 X 页面结构变更或功能迭代时，使用真实推文与 Article 人工复核采集、预览和复制链路。
-- [ ] 使用真实 X 推文与 Article 验证 v2 原生预览的像素级视觉一致性。
-- [ ] 在真实 Chrome Side Panel 中人工验收 Content Inbox 写入与素材保存；作者 Articles 页面 DOM 识别已完成实测。
-- [ ] 在真实 Chrome Side Panel 人工验收素材库的封面完整显示、历史占位降级、窄宽可读性，以及从收件箱保存和直接保存的元数据继承。
-- [ ] 在真实 X 的作者主页 Posts、作者 Articles、Home 与 Bookmarks 人工验收：X 原生 Bookmark 保持原行为，扩展动作只通过 More 加入/移除候选集并导航至对应原文。
-- [ ] 在真实 Chrome 中以 600 CSS px、@2x 对照 X Bookmarks 基准验收候选 Card 的默认、红色移除 hover/focus 和移除后补位状态；同时验证窄宽流式收缩、真实互动快照和切换到错误原文时的阻止提示。
-- [ ] 在真实 Chrome 的 `/status` 与 `/article` More 菜单人工验收“保存到素材库/从素材库移除”双态、单击保存、destructive hover、实时同步、再次添加和独立复制反馈；同时确认扩展不再注入 Bookmark 悬浮按钮，并包含扩展重载前已打开页面点击 Action 后的补注入场景。
+- [ ] /status页面 more 菜单 "加入素材库"时，没有获取到封面，如：https://x.com/0xShoopy/status/2085383231554171098
+
 
 ## 已完成
 
