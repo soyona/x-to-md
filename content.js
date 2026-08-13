@@ -103,21 +103,24 @@ let followSubscriptionState = null;
 let followSubscriptionHideTimer = null;
 let articleMoreMenuState = null;
 let articleMoreMenuPending = null;
-let articleMoreMenuRetryTimer = null;
 let articleMoreTriggerState = null;
-let articleMoreMenuObserver = null;
+let articleActionsEntryObserver = null;
+let articleActionsEntryStartTimer = null;
 const runtimeMessageListeners = [];
 const CONTENT_INBOX_STORAGE_KEY = "x-to-md-content-inbox";
-const CONTENT_SCRIPT_REVISION = "article-more-menu-v20";
+const CONTENT_SCRIPT_REVISION = "article-actions-entry-v25";
 const contentScriptAbortController = new AbortController();
 const contentScriptEventOptions = { signal: contentScriptAbortController.signal };
 const articleMenuDiagnostics = { revision: CONTENT_SCRIPT_REVISION, stage: "initialized", history: [] };
 let contentScriptDisposed = false;
 
+document.documentElement?.setAttribute("data-x-to-md-content-script-revision", CONTENT_SCRIPT_REVISION);
+
 function recordArticleMenuDiagnostic(stage, detail = {}) {
   articleMenuDiagnostics.stage = stage;
   articleMenuDiagnostics.history.push({ stage, detail, at: new Date().toISOString() });
   if (articleMenuDiagnostics.history.length > 20) articleMenuDiagnostics.history.shift();
+  document.documentElement?.setAttribute("data-x-to-md-article-actions-stage", stage);
 }
 
 function reportArticleMenuError(error) {
@@ -147,12 +150,18 @@ function disposeContentScript() {
       // The old extension context may already be invalidated during reload.
     }
   });
-  articleMoreMenuObserver?.disconnect();
-  articleMoreMenuObserver = null;
-  if (articleMoreMenuRetryTimer) window.clearTimeout(articleMoreMenuRetryTimer);
-  articleMoreMenuRetryTimer = null;
+  articleActionsEntryObserver?.disconnect();
+  articleActionsEntryObserver = null;
+  if (articleActionsEntryStartTimer) window.clearTimeout(articleActionsEntryStartTimer);
+  articleActionsEntryStartTimer = null;
+  if (document.documentElement?.getAttribute("data-x-to-md-content-script-revision") === CONTENT_SCRIPT_REVISION) {
+    document.documentElement.removeAttribute("data-x-to-md-content-script-revision");
+    document.documentElement.removeAttribute("data-x-to-md-article-actions-stage");
+  }
   removeFollowSubscriptionToolbar();
   removeArticleMoreMenu();
+  document.querySelectorAll("[data-x-to-md-article-actions-entry]").forEach((entry) => entry.remove());
+  document.querySelector("#x-to-md-article-actions-entry-style")?.remove();
   removeImportPanel();
   restoreCandidateOverlay();
 }
@@ -412,6 +421,40 @@ function articleCandidateFromListRoot(root) {
   };
 }
 
+function postCandidateFromRoot(root, author = null) {
+  const statusLink = [...root?.querySelectorAll?.('a[href]') || []]
+    .find((link) => /\/status\/\d+(?:$|[?#])/u.test(link.getAttribute("href") || ""));
+  if (!statusLink) return null;
+  const sourceUrl = canonicalArticleSourceUrl(new URL(statusLink.getAttribute("href"), location.origin).toString());
+  const tweetText = root.querySelector('[data-testid="tweetText"]');
+  const authorLink = [...root.querySelectorAll('a[href^="/"]')]
+    .find((link) => profileHandleFromHref(link.getAttribute("href")));
+  const handle = author?.handle || profileHandleFromHref(authorLink?.getAttribute("href"));
+  const presentation = author || authorPresentationFromElement(root, handle, handle, root);
+  const authorAvatar = root.querySelector('[data-testid="Tweet-User-Avatar"] img, [data-testid="UserAvatar-Container"] img');
+  const media = [...root.querySelectorAll("img")].find((image) => image !== authorAvatar && isMediaImage(image));
+  const title = textOf(tweetText) || "Untitled Post";
+  return {
+    id: `post_${sourceUrl.split("/").pop()}`,
+    sourceUrl,
+    title,
+    authorHandle: handle,
+    authorName: presentation.displayName || handle,
+    authorAvatarUrl: presentation.authorAvatarUrl || authorAvatar?.currentSrc || authorAvatar?.src || "",
+    coverImageUrl: media ? originalMediaUrl(media.currentSrc || media.src) : "",
+    publishedAt: root.querySelector("time")?.getAttribute("datetime") || null,
+    status: "new",
+    ...articlePreviewMetadata(root, tweetText, title),
+  };
+}
+
+function contentCandidateFromPage(author) {
+  const root = articleCandidateRootFromPage();
+  const isArticle = /\/(?:i\/)?article\/\d+/u.test(location.pathname)
+    || Boolean(root?.querySelector('[data-testid="article-cover-image"], [data-testid="twitter-article-title"], [data-testid="articleText"], [data-testid="twitterArticleRichTextView"]'));
+  return isArticle ? articleCandidateFromPage(author) : postCandidateFromRoot(root, author);
+}
+
 function normalizedSourceUrl(value) {
   return canonicalArticleSourceUrl(value);
 }
@@ -511,14 +554,14 @@ async function extractAndCopyCurrentPage() {
   showPageToast("Copied to clipboard");
 }
 
-async function previewCurrentPageMarkdown() {
-  const capture = await capturePage();
+async function previewCurrentPageMarkdown(candidate = null, root = null) {
+  const capture = await capturePage(root || findRoot(), candidate?.sourceUrl || location.href, candidate);
   const result = await chrome.runtime.sendMessage({ type: "open-markdown-preview", capture });
   if (result?.error) throw new Error(result.error);
 }
 
-async function copyCurrentPageText() {
-  const capture = await capturePage();
+async function copyCurrentPageText(candidate = null, root = null) {
+  const capture = await capturePage(root || findRoot(), candidate?.sourceUrl || location.href, candidate);
   const plainText = (capture.blocks || [])
     .filter((block) => block.type !== "image")
     .map((block) => block.text || block.altText || "")
@@ -529,8 +572,8 @@ async function copyCurrentPageText() {
   showPageToast("文本已复制");
 }
 
-async function saveCurrentPageToLibrary() {
-  const capture = await capturePage();
+async function saveCurrentPageToLibrary(candidate = null, root = null) {
+  const capture = await capturePage(root || findRoot(), candidate?.sourceUrl || location.href, candidate);
   const result = await chrome.runtime.sendMessage({ type: "save-capture-to-library", capture });
   if (result?.error) throw new Error(result.error);
   showPageToast(result?.existing ? "已加入，请查看 " : "已加入，请查看 ", { label: "素材库", view: "assets" });
@@ -676,56 +719,117 @@ function handleFollowButtonEntry(target) {
 }
 
 function removeArticleMoreMenu() {
-  articleMoreMenuObserver?.disconnect();
-  articleMoreMenuObserver = null;
-  document.querySelector("#x-to-md-article-menu-group")?.remove();
+  document.querySelector("#x-to-md-article-actions-menu")?.remove();
+  document.querySelector("#x-to-md-article-actions-style")?.remove();
+  articleMoreTriggerState?.entry?.setAttribute("aria-expanded", "false");
+  articleMoreMenuPending = null;
   articleMoreMenuState = null;
 }
 
-function reconcileArticleMoreMenu(menu, group) {
-  articleMoreMenuObserver?.disconnect();
-  articleMoreMenuObserver = new MutationObserver(() => {
-    if (!menu.isConnected) {
-      articleMoreMenuObserver?.disconnect();
-      articleMoreMenuObserver = null;
-      articleMoreMenuState = null;
-      return;
+function ensureArticleActionsEntryStyle() {
+  if (document.querySelector("#x-to-md-article-actions-entry-style")) return;
+  const style = document.createElement("style");
+  style.id = "x-to-md-article-actions-entry-style";
+  style.textContent = `
+    button[data-x-to-md-article-actions-entry] {
+      border-radius: 9999px !important;
+      transition: background-color 0.2s ease !important;
     }
-    if (!group.isConnected) {
-      recordArticleMenuDiagnostic("group-removed-by-page");
-      menu.prepend(group);
-      recordArticleMenuDiagnostic("group-restored");
+    button[data-x-to-md-article-actions-entry]:hover,
+    button[data-x-to-md-article-actions-entry]:focus-visible,
+    button[data-x-to-md-article-actions-entry][aria-expanded="true"] {
+      background-color: rgba(83, 100, 113, 0.1) !important;
     }
+  `;
+  document.head.append(style);
+}
+
+function articleActionsEntryIcon() {
+  return "M12 2.5C10.45 5.24 6.5 9.55 6.5 13.35A5.5 5.5 0 0 0 12 18.85a5.5 5.5 0 0 0 5.5-5.5C17.5 9.55 13.55 5.24 12 2.5z";
+}
+
+function grokActionsButtonFromRoot(root) {
+  return root?.querySelector?.('button[aria-label="Grok actions"]') || null;
+}
+
+function articleActionsRootFromTarget(target) {
+  const tweet = target?.closest?.('article[data-testid="tweet"]');
+  if (tweet) return tweet;
+  const articleCell = target?.closest?.('[data-testid="cellInnerDiv"]');
+  if (articleCell) return articleCell;
+  return isArticleSourcePage() ? articleCandidateRootFromPage() : null;
+}
+
+function injectArticleActionsEntry(root) {
+  if (!root?.isConnected || root.querySelector("[data-x-to-md-article-actions-entry]")) return;
+  const grokButton = grokActionsButtonFromRoot(root);
+  if (!grokButton?.parentElement) return;
+  const entry = grokButton.cloneNode(true);
+  const entrySlot = grokButton.parentElement.cloneNode(false);
+  entrySlot.style.marginLeft = "auto";
+  entry.removeAttribute("id");
+  entry.dataset.xToMdArticleActionsEntry = "true";
+  entry.setAttribute("type", "button");
+  entry.setAttribute("aria-label", "X to MD 操作");
+  entry.setAttribute("aria-haspopup", "menu");
+  entry.setAttribute("aria-expanded", "false");
+  entry.setAttribute("title", "X to MD 操作");
+  ensureArticleActionsEntryStyle();
+  const entryIcon = entry.querySelector("svg");
+  if (!entryIcon) return;
+  entryIcon.setAttribute("viewBox", "0 0 24 24");
+  const entryIconPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  entryIconPath.setAttribute("d", articleActionsEntryIcon());
+  entryIcon.replaceChildren(entryIconPath);
+  entry.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    openArticleActionsFromEntry(entry).catch(reportArticleMenuError);
   });
-  articleMoreMenuObserver.observe(menu, { childList: true });
+  entrySlot.append(entry);
+  grokButton.parentElement.before(entrySlot);
 }
 
-function visibleNativeMenu() {
-  return [...document.querySelectorAll('[data-testid="Dropdown"]')]
-    .find((dropdown) => dropdown.getClientRects().length
-      && [...dropdown.querySelectorAll(':scope > [role="menuitem"]')]
-        .some((item) => /^(?:Embed Article|Report Article)$/u.test(textOf(item)))) || null;
+function injectVisibleArticleActionsEntries() {
+  document.querySelectorAll('article[data-testid="tweet"], [data-testid="cellInnerDiv"]').forEach(injectArticleActionsEntry);
+  if (isArticleSourcePage()) injectArticleActionsEntry(articleCandidateRootFromPage());
 }
 
-function nativeMenuIcon(menu, label) {
-  return [...menu.querySelectorAll('[role="menuitem"]')]
-    .find((item) => textOf(item).includes(label))
-    ?.querySelector("svg")?.outerHTML || "";
-}
-
-function nativeFollowMenuIcon(menu, isFollowing) {
-  const labels = isFollowing ? ["Unfollow", "Following"] : ["Follow"];
-  return [...menu.querySelectorAll('[role="menuitem"]')]
-    .find((item) => labels.some((label) => new RegExp(`^${label}(?:\\s+@[a-z0-9_]{1,15})?$`, "iu").test(textOf(item))))
-    ?.querySelector("svg")?.outerHTML || "";
+function startArticleActionsEntryObserver() {
+  if (contentScriptDisposed || articleActionsEntryObserver) return;
+  const timelineRoot = document.querySelector("main");
+  if (!timelineRoot) {
+    if (!articleActionsEntryStartTimer) {
+      recordArticleMenuDiagnostic("waiting-for-main");
+      articleActionsEntryStartTimer = window.setTimeout(() => {
+        articleActionsEntryStartTimer = null;
+        startArticleActionsEntryObserver();
+      }, 100);
+    }
+    return;
+  }
+  articleActionsEntryObserver = new MutationObserver((mutations) => {
+    const roots = new Set();
+    mutations.forEach((mutation) => {
+      const targetRoot = articleActionsRootFromTarget(mutation.target);
+      if (targetRoot) roots.add(targetRoot);
+      mutation.addedNodes.forEach((node) => {
+        if (!(node instanceof Element)) return;
+        const contextualRoot = articleActionsRootFromTarget(node);
+        if (contextualRoot) roots.add(contextualRoot);
+        node.querySelectorAll?.('article[data-testid="tweet"], [data-testid="cellInnerDiv"]')
+          .forEach((root) => roots.add(root));
+      });
+    });
+    roots.forEach(injectArticleActionsEntry);
+  });
+  articleActionsEntryObserver.observe(timelineRoot, { childList: true, subtree: true });
+  recordArticleMenuDiagnostic("observing-main");
+  injectVisibleArticleActionsEntries();
 }
 
 function followPersonIcon() {
   return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4c-1.105 0-2 .9-2 2s.895 2 2 2 2-.9 2-2-.895-2-2-2zM6 6c0-2.21 1.791-4 4-4s4 1.79 4 4-1.791 4-4 4-4-1.79-4-4zm13 4v3h2v-3h3V8h-3V5h-2v3h-3v2h3zM3.651 19h12.698c-.337-1.8-1.023-3.21-1.945-4.19C13.318 13.65 11.838 13 10 13s-3.317.65-4.404 1.81c-.922.98-1.608 2.39-1.945 4.19zm.486-5.56C5.627 11.85 7.648 11 10 11s4.373.85 5.863 2.44c1.477 1.58 2.366 3.8 2.632 6.46l.11 1.1H1.395l.11-1.1c.266-2.66 1.155-4.88 2.632-6.46z"></path></svg>';
-}
-
-function unfollowPersonIconLegacy() {
-  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4c-1.105 0-2 .9-2 2s.895 2 2 2 2-.9 2-2-.895-2-2-2zM6 6c0-2.21 1.791-4 4-4s4 1.79 4 4-1.791 4-4 4-4-1.79-4-4zm12.586 3l-2.043-2.04 1.414-1.42L20 7.59l2.043-2.05-1.414-1.42L18.586 9zM3.651 19h12.698c-.337-1.8-1.023-3.21-1.945-4.19C13.318 13.65 11.838 13 10 13s-3.317.65-4.404 1.81c-.922.98-1.608 2.39-1.945 4.19zm.486-5.56C5.627 11.85 7.648 11 10 11s4.373.85-4 4.373-4.373.85-5.863 2.44c-1.477 1.58-2.366 3.8-2.632 6.46l-.11 1.1H1.395l.11-1.1c.266-2.66 1.155-4.88 2.632-6.46z"></path></svg>';
 }
 
 function unfollowPersonIcon() {
@@ -757,27 +861,19 @@ function copyTextIcon() {
   return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3.5h10A2.5 2.5 0 0 1 19.5 6v12A2.5 2.5 0 0 1 17 20.5H7A2.5 2.5 0 0 1 4.5 18V6A2.5 2.5 0 0 1 7 3.5zm0 2a.5.5 0 0 0-.5.5v12a.5.5 0 0 0 .5.5h10a.5.5 0 0 0 .5-.5V6a.5.5 0 0 0-.5-.5H7z"></path><path d="M8 8h8v1.75H8zm0 3.5h8v1.75H8zm0 3.5h5v1.75H8z"></path></svg>';
 }
 
-function articleMenuAuthor(menu) {
-  const followItemText = [...menu.querySelectorAll(':scope > [role="menuitem"]')]
-    .map(textOf)
-    .find((label) => /^(?:Follow|Unfollow)\s+@[a-z0-9_]{1,15}$/iu.test(label)) || "";
-  const menuHandle = followItemText.match(/@[a-z0-9_]{1,15}/iu)?.[0] || "";
-  const context = menuHandle ? null : currentPageContext();
-  const handle = menuHandle || context?.authorHandle || "";
+function markdownPreviewIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 2.5h8.8l3.2 3.2v13.8A2.5 2.5 0 0 1 16 22H6.5A2.5 2.5 0 0 1 4 19.5V5A2.5 2.5 0 0 1 6.5 2.5zm8 2H6.5a.5.5 0 0 0-.5.5v14.5a.5.5 0 0 0 .5.5H16a.5.5 0 0 0 .5-.5V6.5h-2z"></path><path d="M9.2 9.1 7.4 12l1.8 2.9 1.5-.9-1.2-2 1.2-2zm5.6 0-1.5.9 1.2 2-1.2 2 1.5.9 1.8-2.9z"></path></svg>';
+}
+
+function articleActionsAuthor(root, fallbackCandidate = null) {
+  const context = currentPageContext();
+  const handle = fallbackCandidate?.authorHandle || context?.authorHandle || "";
   if (!handle) return null;
-  const nativeFollowButton = [...document.querySelectorAll("button")]
-    .find((button) => {
-      if (button === articleMoreTriggerState?.button || !followButtonFromTarget(button)) return false;
-      const root = authorRootFromFollowButton(button, handle);
-      return [...root?.querySelectorAll?.("a[href]") || []]
-        .some((link) => profileHandleFromHref(link.getAttribute("href")).toLowerCase() === handle.toLowerCase());
-    });
-  const nativeAuthor = nativeFollowButton ? authorFromFollowButton(nativeFollowButton, handle) : null;
-  const presentation = nativeAuthor || authorPresentationFromElement(
-    articleMoreTriggerState?.button || menu,
+  const presentation = authorPresentationFromElement(
+    root,
     handle,
-    context?.authorName || handle,
-    articleMoreTriggerState?.button?.closest('[data-testid="primaryColumn"]') || document,
+    fallbackCandidate?.authorName || context?.authorName || handle,
+    root,
   );
   return {
     handle,
@@ -786,49 +882,69 @@ function articleMenuAuthor(menu) {
   };
 }
 
-function articleMoreButtonFromTarget(target) {
-  const button = target?.closest?.('button[data-testid="caret"][aria-haspopup="menu"]');
-  if (!button) return null;
-  let candidate = null;
-  try {
-    if (isArticleSourcePage()) return { button, candidate: articleCandidateFromPage() };
-    const root = button.closest('[data-testid="cellInnerDiv"], article') || articleCardRootFromTarget(button);
-    candidate = articleCandidateFromListRoot(root);
-  } catch (error) {
-    recordArticleMenuDiagnostic("candidate-read-failed", { message: error?.message || String(error) });
-    // Opening the native menu must not depend on optional candidate metadata.
-  }
-  return { button, candidate };
+function positionArticleActionsMenu(menu, entry) {
+  const entryRect = entry.getBoundingClientRect();
+  const menuRect = menu.getBoundingClientRect();
+  const left = Math.min(Math.max(entryRect.right - menuRect.width, 8), window.innerWidth - menuRect.width - 8);
+  const below = entryRect.bottom + 4;
+  const above = entryRect.top - menuRect.height - 4;
+  menu.style.left = `${left}px`;
+  menu.style.top = `${below + menuRect.height <= window.innerHeight - 8 ? below : Math.max(8, above)}px`;
 }
 
-function scheduleArticleMoreMenu() {
-  if (articleMoreMenuRetryTimer) window.clearTimeout(articleMoreMenuRetryTimer);
-  articleMoreMenuRetryTimer = null;
-  recordArticleMenuDiagnostic("waiting-for-dropdown");
-  let attempts = 0;
-  const injectWhenReady = () => {
-    if (visibleNativeMenu()) {
-      articleMoreMenuRetryTimer = null;
-      recordArticleMenuDiagnostic("dropdown-found", { attempts });
-      showArticleMoreMenu().catch(reportArticleMenuError);
-      return;
+function createArticleActionsMenuStyle() {
+  const style = document.createElement("style");
+  style.id = "x-to-md-article-actions-style";
+  style.textContent = `
+    #x-to-md-article-actions-menu,
+    #x-to-md-article-actions-menu * { box-sizing: border-box !important; }
+    #x-to-md-article-actions-menu {
+      position: fixed !important;
+      z-index: 2147483647 !important;
+      width: 300px !important;
+      max-width: calc(100vw - 16px) !important;
+      padding: 8px 0 !important;
+      border-radius: 12px !important;
+      overflow: hidden !important;
+      box-shadow: 0 0 15px rgba(101, 119, 134, 0.2), 0 0 3px 1px rgba(101, 119, 134, 0.15) !important;
     }
-    attempts += 1;
-    if (attempts < 30) articleMoreMenuRetryTimer = window.setTimeout(injectWhenReady, 50);
-    else recordArticleMenuDiagnostic("dropdown-timeout", { attempts });
-  };
-  window.requestAnimationFrame(injectWhenReady);
+    #x-to-md-article-actions-menu [data-x-to-md-action] {
+      display: flex !important;
+      width: 100% !important;
+      min-height: 48px !important;
+      margin: 0 !important;
+      padding: 12px 16px !important;
+      border: 0 !important;
+      border-radius: 0 !important;
+      align-items: center !important;
+      background: transparent !important;
+      color: inherit !important;
+      font: inherit !important;
+      font-size: 15px !important;
+      font-weight: 700 !important;
+      line-height: 20px !important;
+      text-align: left !important;
+      cursor: pointer !important;
+    }
+    #x-to-md-article-actions-menu [data-x-to-md-action]:hover,
+    #x-to-md-article-actions-menu [data-x-to-md-action]:focus-visible {
+      background: rgba(83, 100, 113, 0.1) !important;
+      outline: none !important;
+    }
+  `;
+  return style;
 }
 
-async function showArticleMoreMenu() {
+async function showArticleActionsMenu(entry, sourceCandidate, root) {
   if (!hasExtensionStorage()) return;
-  const menu = visibleNativeMenu();
-  if (!menu || (articleMoreMenuState?.menu === menu && articleMoreMenuState.group.isConnected)) return;
-  if (articleMoreMenuPending === menu) return;
-  articleMoreMenuPending = menu;
+  if (articleMoreMenuState?.entry === entry) {
+    removeArticleMoreMenu();
+    return;
+  }
+  if (articleMoreMenuPending === entry) return;
   removeArticleMoreMenu();
-  const author = articleMenuAuthor(menu);
-  const sourceCandidate = articleMoreTriggerState?.candidate || articleCandidateFromPage(author);
+  articleMoreMenuPending = entry;
+  const author = articleActionsAuthor(root, sourceCandidate);
   const candidate = sourceCandidate && author ? {
     ...sourceCandidate,
     authorHandle: sourceCandidate.authorHandle || author.handle,
@@ -842,48 +958,44 @@ async function showArticleMoreMenu() {
   let stored;
   try {
     stored = await chrome.storage.local.get(CONTENT_INBOX_STORAGE_KEY);
-  } finally {
-    articleMoreMenuPending = null;
+  } catch (error) {
+    if (articleMoreMenuPending === entry) articleMoreMenuPending = null;
+    throw error;
   }
+  if (articleMoreMenuPending !== entry || !entry.isConnected) return;
+  articleMoreMenuPending = null;
   recordArticleMenuDiagnostic("storage-read");
-  if (!menu.isConnected || menu !== visibleNativeMenu()) {
-    recordArticleMenuDiagnostic("dropdown-replaced-before-insert");
-    return;
-  }
   const inbox = stored[CONTENT_INBOX_STORAGE_KEY] || {};
   const isFollowing = (inbox.subscriptions || []).some((item) => item.handle?.toLowerCase() === author.handle.toLowerCase());
   const isInInbox = (inbox.candidates || []).some((item) => matchesInboxCandidate(item, candidate.sourceUrl) && isActiveInboxCandidate(item));
   const isInLibrary = (inbox.assets || []).some((item) => matchesLibraryAsset(item, candidate.sourceUrl));
-  const isSourcePage = isArticleSourcePage();
-  const group = document.createElement("div");
-  group.id = "x-to-md-article-menu-group";
-  group.setAttribute("aria-label", "x-to-md Article 操作");
-  group.style.cssText = "border-bottom: 1px solid rgb(239, 243, 244);";
-  const hoverStyle = document.createElement("style");
-  hoverStyle.textContent = `#x-to-md-article-menu-group [data-x-to-md-action] { border-radius: 4px !important; } #x-to-md-article-menu-group [data-x-to-md-action]:hover, #x-to-md-article-menu-group [data-x-to-md-action]:focus-visible { background: rgb(232, 245, 253) !important; }`;
-  group.append(hoverStyle);
+  const menu = document.createElement("div");
+  menu.id = "x-to-md-article-actions-menu";
+  menu.setAttribute("role", "menu");
+  menu.setAttribute("aria-label", "X to MD 操作");
+  const pageStyle = getComputedStyle(document.body);
+  menu.style.backgroundColor = pageStyle.backgroundColor;
+  menu.style.color = pageStyle.color;
   const actionRow = (label, icon, action) => {
-    const template = [...menu.querySelectorAll(':scope > [role="menuitem"]')]
-      .find((item) => textOf(item) === "Embed Article") || menu.querySelector(':scope > [role="menuitem"]');
-    const row = template.cloneNode(true);
+    const row = document.createElement("button");
+    row.type = "button";
+    row.setAttribute("role", "menuitem");
     row.dataset.xToMdAction = action;
     setMenuRowIcon(row, icon);
-    const labelSlot = [...row.querySelectorAll("span, div")]
-      .filter((element) => textOf(element) === "Embed Article")
-      .at(-1);
-    if (labelSlot) labelSlot.textContent = label;
-    else row.append(document.createTextNode(label));
+    const labelSlot = document.createElement("span");
+    labelSlot.textContent = label;
+    row.append(labelSlot);
     const runAction = async () => {
       if (action === "follow") {
         if (isFollowing) await removeAuthorSubscription(author.handle);
         else await saveAuthorSubscription(author);
       } else if (action === "extract") {
-        await previewCurrentPageMarkdown();
+        await previewCurrentPageMarkdown(candidate, root);
       } else if (action === "copy-text") {
-        await copyCurrentPageText();
+        await copyCurrentPageText(candidate, root);
       } else if (action === "library") {
         if (isInLibrary) await removeCurrentPageFromLibrary(candidate.sourceUrl);
-        else await saveCurrentPageToLibrary();
+        else await saveCurrentPageToLibrary(candidate, root);
       } else if (isInInbox) {
         await removeInboxCandidate(candidate.sourceUrl);
       } else {
@@ -891,26 +1003,29 @@ async function showArticleMoreMenu() {
       }
       removeArticleMoreMenu();
     };
-    row.addEventListener("click", () => runAction().catch(removeArticleMoreMenu));
+    row.addEventListener("click", (event) => {
+      event.stopPropagation();
+      runAction().catch(reportArticleMenuError);
+    });
     row.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") { event.preventDefault(); runAction().catch(removeArticleMoreMenu); }
     });
     return row;
   };
-  group.append(
+  menu.append(
     actionRow(isFollowing ? "取消关注" : "关注", isFollowing ? unfollowPersonIcon() : followPersonIcon(), "follow"),
-    ...(isSourcePage ? [
-      actionRow("预览/复制 Markdown", nativeMenuIcon(menu, "Embed Article"), "extract"),
-      actionRow("复制文本", copyTextIcon(), "copy-text"),
-      actionRow(isInLibrary ? "从素材库移除" : "加入素材库", libraryBookmarkIcon(), "library"),
-    ] : [
-      actionRow(isInInbox ? "从候选集移除" : "加入候选集", candidateTrayIcon(), "inbox"),
-    ]),
+    actionRow("预览/复制 Markdown", markdownPreviewIcon(), "extract"),
+    actionRow("复制文本", copyTextIcon(), "copy-text"),
+    actionRow(isInLibrary ? "从素材库移除" : "加入素材库", libraryBookmarkIcon(), "library"),
+    actionRow(isInInbox ? "从候选集移除" : "加入候选集", candidateTrayIcon(), "inbox"),
   );
-  menu.prepend(group);
-  articleMoreMenuState = { menu, group };
-  recordArticleMenuDiagnostic("group-inserted");
-  reconcileArticleMoreMenu(menu, group);
+  const style = createArticleActionsMenuStyle();
+  document.head.append(style);
+  document.body.append(menu);
+  positionArticleActionsMenu(menu, entry);
+  entry.setAttribute("aria-expanded", "true");
+  articleMoreMenuState = { menu, entry };
+  recordArticleMenuDiagnostic("actions-menu-opened");
 }
 
 document.addEventListener("pointerover", (event) => {
@@ -936,20 +1051,37 @@ document.addEventListener("click", (event) => {
   }
 }, contentScriptEventOptions);
 
-function handleArticleMoreMenuTrigger(event) {
-  const trigger = articleMoreButtonFromTarget(event.target);
-  if (!trigger) return;
-  articleMoreTriggerState = trigger;
-  recordArticleMenuDiagnostic("caret-triggered", { hasCandidate: Boolean(trigger.candidate), eventType: event.type });
-  scheduleArticleMoreMenu();
+async function openArticleActionsFromEntry(entry) {
+  const root = articleActionsRootFromTarget(entry);
+  if (!root) {
+    recordArticleMenuDiagnostic("missing-actions-entry-context", { hasRoot: false });
+    return;
+  }
+  const candidate = isArticleSourcePage()
+    ? contentCandidateFromPage()
+    : articleCandidateFromListRoot(root) || postCandidateFromRoot(root);
+  articleMoreTriggerState = { candidate, root, entry };
+  recordArticleMenuDiagnostic("actions-entry-triggered", { hasCandidate: Boolean(candidate) });
+  await showArticleActionsMenu(entry, candidate, root);
 }
 
-document.addEventListener("pointerdown", handleArticleMoreMenuTrigger, { capture: true, ...contentScriptEventOptions });
-document.addEventListener("click", handleArticleMoreMenuTrigger, { capture: true, ...contentScriptEventOptions });
+startArticleActionsEntryObserver();
 
 document.addEventListener("mousedown", (event) => {
+  if (articleMoreMenuState
+    && !event.target.closest("#x-to-md-article-actions-menu")
+    && !event.target.closest("[data-x-to-md-article-actions-entry]")) removeArticleMoreMenu();
   if (!event.target.closest("#x-to-md-follow-subscription-toolbar") && event.target.closest("button") !== followSubscriptionState?.followButton) removeFollowSubscriptionToolbar();
 }, { capture: true, ...contentScriptEventOptions });
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && articleMoreMenuState) {
+    const entry = articleMoreMenuState.entry;
+    removeArticleMoreMenu();
+    entry?.focus();
+  }
+}, contentScriptEventOptions);
+window.addEventListener("resize", removeArticleMoreMenu, contentScriptEventOptions);
+window.addEventListener("scroll", removeArticleMoreMenu, { capture: true, ...contentScriptEventOptions });
 
 function importPanelStyle() {
   const style = document.createElement("style");
@@ -1259,8 +1391,7 @@ async function revealLazyContent(root) {
   }
 }
 
-async function capturePage() {
-  const root = findRoot();
+async function capturePage(root = findRoot(), sourceUrl = location.href, sourceCandidate = null) {
   if (!root) throw new Error("Open a post or Article and try again.");
   await revealLazyContent(root);
   const sourceHandle = decodeURIComponent(location.pathname.split("/").filter(Boolean)[0] || "");
@@ -1303,11 +1434,21 @@ async function capturePage() {
     .filter(Boolean)
     .join("\n\n")
     .trim();
-  const metadata = articleMetadata(root, sourceHandle, blocks);
+  const metadata = sourceCandidate ? {
+    authorHandle: sourceCandidate.authorHandle || null,
+    authorName: sourceCandidate.authorName || null,
+    authorAvatarUrl: sourceCandidate.authorAvatarUrl || null,
+    authorVerified: sourceCandidate.authorVerified || false,
+    coverImageUrl: sourceCandidate.coverImageUrl || "",
+    publishedAt: sourceCandidate.publishedAt || null,
+    previewExcerpt: sourceCandidate.previewExcerpt || "",
+    title: sourceCandidate.title || null,
+    metrics: {},
+  } : articleMetadata(root, sourceHandle, blocks);
   return {
     kind: "x-to-xhs.capture",
     version: 1,
-    sourceUrl: location.href,
+    sourceUrl,
     ...metadata,
     content,
     plainText,

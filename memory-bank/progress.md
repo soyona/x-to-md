@@ -10,12 +10,9 @@
 
 ## 已完成
 
+- [x] 2026-08-13 将 X Home、作者 Posts/Articles 列表和 `/status`、`/article` 原文页的五项动态操作迁移到 `Grok actions` 左侧的独立 x-to-md 图标；原生 More 不再扩展，普通 Post 直接从当前卡片采集并按 status URL 去重。
 - [x] 2026-08-12 收敛为两级模型：候选集仅通过列表页 More 加入/移除，素材库仅通过原文页 More 保存/移除；删除扩展 Bookmark 悬浮入口，候选集使用托盘图标、素材库使用书签图标，保留原生 Bookmark 与底层存储兼容。
 
-- [x] X 原文详情页的 Bookmark 与 More 统一直接添加至/移出素材库；`Extract and copy` 改为仅复制并反馈，不再要求保存确认或打开 Side Panel。
-- [x] 移除扩展 Bookmark hover/focus 悬浮入口，统一通过 More 菜单承载候选集与素材库动作；候选集导航和动作使用托盘图标，素材库使用书签图标。
-- [x] 在作者 Articles 列表的每张卡片及 X Article 原文中支持从 Bookmark 位置添加至收件箱，并按 Article URL 去重写入候选元数据。
-- [x] 在扩展更新/启动时及用户点击 Action 后，仅以当前 content script 的明确就绪回复作为版本判据；旧脚本或缺失脚本均补注入已打包 content script，避免页面交互因保留旧版脚本而完全不可用。
 - [x] 将 Side Panel 候选 Card 重构为 X Bookmarks 视觉结构，持久化加入时可见摘要、认证与互动快照；删除候选 `•••`、忽略和卡内保存入口，并把两个移除入口统一为 `ignored` 墓碑状态。保存完整 Markdown 继续由原文上下文操作完成。
 - [x] 将 Side Panel 调整为上下文感知 Content Inbox：收件箱/关注作者/素材库、当前页面上下文、保存并复制 Markdown、候选忽略撤销与标签页同步。
 - [x] 原文加入收件箱后自动刷新 Side Panel，并支持按添加时间或原文发表时间从新到旧排序。

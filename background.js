@@ -70,7 +70,7 @@ const X_TAB_URL_PATTERNS = [
   "https://www.twitter.com/*",
 ];
 const CONTENT_INBOX_STORAGE_KEY = "x-to-md-content-inbox";
-const CONTENT_SCRIPT_REVISION = "article-more-menu-v20";
+const CONTENT_SCRIPT_REVISION = "article-actions-entry-v25";
 
 function reportContentScriptError(context, error) {
   console.error(`[x-to-md] ${context}`, error);

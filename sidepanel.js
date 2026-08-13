@@ -25,7 +25,6 @@ const state = {
   assetPublishDraft: "",
   assetPublishError: "",
   assetDialog: null,
-  assetImageDialog: null,
   navigationPlacement: "left",
   lastVisibleNavigationPlacement: "left",
 };
@@ -344,7 +343,7 @@ function renderAssets() {
       ? authorProfileUrl ? `<a href="${escapeHtml(authorProfileUrl)}" target="_blank" rel="noreferrer">${escapeHtml(asset.authorHandle)}</a>` : `<span>${escapeHtml(asset.authorHandle)}</span>`
       : "";
     const cover = asset.coverImageUrl
-      ? `<button class="article-card-media asset-card-media" data-action="asset-view-cover" data-id="${escapeHtml(asset.id)}" type="button" aria-label="放大查看 ${escapeHtml(asset.title)} 封面"><img src="${escapeHtml(asset.coverImageUrl)}" alt="" /></button>`
+      ? `<a class="article-card-media asset-card-media" href="${escapeHtml(asset.sourceUrl)}" target="_blank" rel="noreferrer" aria-label="在 X 中打开 ${escapeHtml(asset.title)} 原文"><img src="${escapeHtml(asset.coverImageUrl)}" alt="" /></a>`
       : `<span class="article-card-media asset-card-media asset-card-placeholder" aria-hidden="true">𝕏<br>Article</span>`;
     const verified = asset.authorVerified ? verifiedBadge() : "";
     const tags = (asset.tags || []).map((tag) => `<span class="asset-tag"><span>${escapeHtml(tag)}</span><button data-action="asset-remove-tag" data-id="${escapeHtml(asset.id)}" data-tag="${escapeHtml(tag)}" type="button" aria-label="删除标签 ${escapeHtml(tag)}" title="删除标签">×</button></span>`).join("");
@@ -367,10 +366,8 @@ function renderAssets() {
   const publishDialogAsset = state.data.assets.find((asset) => asset.id === state.assetPublishDialog);
   const publishDialogLinks = publishDialogAsset ? publishedLinksForAsset(publishDialogAsset) : [];
   const publishDialog = publishDialogAsset ? `<div class="asset-dialog-backdrop"><section class="asset-dialog asset-publish-dialog" role="dialog" aria-modal="true" aria-labelledby="asset-publish-dialog-title"><div class="asset-publish-dialog-heading"><h2 id="asset-publish-dialog-title">管理发布链接</h2><button class="asset-dialog-close" data-action="asset-publish-cancel" type="button" aria-label="关闭">×</button></div><p>保存后会显示在素材卡的“已发布至”中；同一平台的新链接将替换旧链接。</p><div class="asset-publish-list" aria-label="已保存的发布链接">${publishDialogLinks.length ? publishDialogLinks.map((item) => `<div class="asset-publish-item"><span class="asset-platform-link is-${escapeHtml(item.platform)}" aria-hidden="true">${platformIcon(item.platform)}</span><a href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">${escapeHtml(platformLabel(item.platform))}</a><button class="link-button asset-publish-remove" data-action="asset-publish-remove" data-id="${escapeHtml(publishDialogAsset.id)}" data-platform="${escapeHtml(item.platform)}" type="button">移除</button></div>`).join("") : `<p class="asset-publish-empty">尚未添加发布链接</p>`}</div><label class="asset-publish-field"><span>发布链接</span><input data-asset-publish-input data-id="${escapeHtml(publishDialogAsset.id)}" type="url" inputmode="url" placeholder="粘贴小红书、Reddit、微信或 B 站链接" value="${escapeHtml(state.assetPublishDraft)}" aria-describedby="asset-publish-hint${state.assetPublishError ? " asset-publish-error" : ""}" aria-invalid="${Boolean(state.assetPublishError)}"></label><p class="asset-publish-hint" id="asset-publish-hint">仅支持公开的 HTTPS 链接。</p>${state.assetPublishError ? `<p class="asset-publish-error" id="asset-publish-error" role="alert">${escapeHtml(state.assetPublishError)}</p>` : ""}<div class="asset-dialog-actions"><button class="secondary-button" data-action="asset-publish-cancel" type="button">取消</button><button class="primary-button" data-action="asset-publish-save" data-id="${escapeHtml(publishDialogAsset.id)}" type="button">保存链接</button></div></section></div>` : "";
-  const imageAsset = state.data.assets.find((asset) => asset.id === state.assetImageDialog && asset.coverImageUrl);
-  const imageDialog = imageAsset ? `<div class="asset-image-backdrop" role="dialog" aria-modal="true" aria-label="${escapeHtml(imageAsset.title)} 封面"><img src="${escapeHtml(imageAsset.coverImageUrl)}" alt="${escapeHtml(imageAsset.title)} 封面" /><button class="asset-image-close" data-action="asset-image-close" type="button" aria-label="关闭封面查看">×</button></div>` : "";
   const assetTabs = [["all", "全部"], ["unused", "未使用"], ["used", "已使用"]].map(([filter, label]) => `<button class="${state.assetFilter === filter ? "is-active" : ""}" data-filter="${filter}" type="button" aria-label="${label} ${assetCounts[filter]} 篇">${label}<span class="candidate-date-count" aria-hidden="true">${assetCounts[filter]}</span></button>`).join("");
-  view.innerHTML = `<div class="asset-filters"><label class="panel-search"><span class="sr-only">搜索素材</span>${searchIcon()}<input data-asset-search type="search" placeholder="搜索标题、作者、@handle 或标签" value="${escapeHtml(state.assetQuery)}" aria-label="搜索素材"></label><div class="candidate-date-tabs asset-filter-tabs" role="group" aria-label="素材库分类筛选">${assetTabs}</div></div>${assets.length ? assets.map(assetCell).join("") : `<p class="empty">还没有已保存的素材。请在 X 原文中保存 Markdown 后查看。</p>`}${dialog}${publishDialog}${imageDialog}`;
+  view.innerHTML = `<div class="asset-filters"><label class="panel-search"><span class="sr-only">搜索素材</span>${searchIcon()}<input data-asset-search type="search" placeholder="搜索标题、作者、@handle 或标签" value="${escapeHtml(state.assetQuery)}" aria-label="搜索素材"></label><div class="candidate-date-tabs asset-filter-tabs" role="group" aria-label="素材库分类筛选">${assetTabs}</div></div>${assets.length ? assets.map(assetCell).join("") : `<p class="empty">还没有已保存的素材。请在 X 原文中保存 Markdown 后查看。</p>`}${dialog}${publishDialog}`;
 }
 function layoutIcon(placement) {
   if (placement === "left") return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M10 4v16"/></svg>';
@@ -436,7 +433,6 @@ async function handleAction(action, target) {
   }
   const asset = state.data.assets.find((item) => item.id === idValue);
   if (action === "navigation-restore") return setNavigationPlacement(state.lastVisibleNavigationPlacement);
-  if (action === "asset-image-close") { state.assetImageDialog = null; return render(); }
   if (action === "asset-menu") {
     const opens = state.candidateMenu !== idValue;
     state.candidateMenu = opens ? idValue : null;
@@ -455,7 +451,6 @@ async function handleAction(action, target) {
   }
   if (action === "asset-publish-cancel") { state.assetPublishDialog = null; state.assetPublishDraft = ""; state.assetPublishError = ""; return render(); }
   if (!asset) return;
-  if (action === "asset-view-cover") { state.assetImageDialog = asset.id; return render(); }
   if (action === "asset-preview") {
     await chrome.storage.session.set({ "library-markdown-preview": { title: asset.title, markdown: asset.markdown, authorName: asset.authorName, authorHandle: asset.authorHandle, sourceUrl: asset.sourceUrl, publishedAt: asset.publishedAt } });
     await chrome.tabs.create({ url: chrome.runtime.getURL("preview.html?mode=library") });
