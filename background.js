@@ -1,4 +1,6 @@
 (function registerInboxStore() {
+  const SCHEMA_VERSION = 1;
+
   function normalizedSourceUrl(value) {
     const fallback = String(value || "").split(/[?#]/u)[0].replace(/\/$/u, "");
     try {
@@ -10,200 +12,278 @@
     }
   }
 
-  function saveCapture(inbox, capture, { id, now } = {}) {
-    const sourceUrl = normalizedSourceUrl(capture?.sourceUrl);
-    if (!sourceUrl || !capture?.content) throw new Error("无法保存空素材。");
-    const candidates = (inbox?.candidates || []).map((candidate) => ({ ...candidate }));
-    const assets = (inbox?.assets || []).map((asset) => ({ ...asset }));
-    const candidate = candidates.find((item) => normalizedSourceUrl(item.sourceUrl) === sourceUrl);
-    const existing = assets.find((asset) => normalizedSourceUrl(asset.sourceUrl) === sourceUrl);
+  function emptyInbox() {
+    return { schemaVersion: SCHEMA_VERSION, readingList: [], authors: [], assets: [] };
+  }
 
-    if (candidate) candidate.status = "saved";
-    if (!existing) {
-      const savedMetadata = (key, fallback = "") => {
-        const candidateValue = candidate?.[key];
-        return candidateValue === undefined || candidateValue === null || candidateValue === ""
-          ? (capture?.[key] ?? fallback)
-          : candidateValue;
-      };
-      assets.unshift({
-        id,
-        candidateId: candidate?.id || null,
-        sourceUrl,
-        title: capture.title || "Untitled Article",
-        authorHandle: capture.authorHandle || "",
-        authorName: savedMetadata("authorName"),
-        authorAvatarUrl: savedMetadata("authorAvatarUrl"),
-        authorVerified: savedMetadata("authorVerified", false),
-        coverImageUrl: savedMetadata("coverImageUrl"),
-        publishedAt: savedMetadata("publishedAt", null),
-        previewExcerpt: savedMetadata("previewExcerpt"),
-        markdown: capture.content,
-        tags: [],
-        note: "",
-        usageStatus: "unused",
-        publishedLinks: [],
-        createdAt: now,
-        updatedAt: now,
-      });
+  function currentInbox(value) {
+    if (value?.schemaVersion !== SCHEMA_VERSION) return emptyInbox();
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      readingList: Array.isArray(value.readingList) ? value.readingList.map((item) => ({ ...item })) : [],
+      authors: Array.isArray(value.authors) ? value.authors.map((item) => ({ ...item })) : [],
+      assets: Array.isArray(value.assets) ? value.assets.map((item) => ({ ...item })) : [],
+    };
+  }
+
+  function articleReference(value, { requireMarkdown = false } = {}) {
+    const sourceUrl = normalizedSourceUrl(value?.sourceUrl);
+    let isSupportedSource = false;
+    try {
+      const url = new URL(sourceUrl);
+      isSupportedSource = ["x.com", "www.x.com", "twitter.com", "www.twitter.com"].includes(url.hostname)
+        && /^\/(?:[^/]+\/(?:status|article)|i\/article)\/\d+$/u.test(url.pathname);
+    } catch {
+      isSupportedSource = false;
     }
-
-    return { inbox: { ...(inbox || {}), candidates, assets }, existing: Boolean(existing) };
+    if (!isSupportedSource || value?.contentType !== "article") throw new Error("只能保存有效的 X Article。");
+    if (requireMarkdown && !String(value?.content || value?.markdown || "").trim()) throw new Error("没有采集到可用的 Markdown。");
+    return { ...value, sourceUrl };
   }
 
-  function removeCapture(inbox, sourceUrl) {
+  function saveReadingArticle(inboxValue, reference, { id, now } = {}) {
+    const inbox = currentInbox(inboxValue);
+    const article = articleReference(reference);
+    const existing = inbox.readingList.find((item) => normalizedSourceUrl(item.sourceUrl) === article.sourceUrl);
+    const next = {
+      id: existing?.id || id,
+      contentType: "article",
+      sourceUrl: article.sourceUrl,
+      title: article.title || "Untitled Article",
+      authorHandle: article.authorHandle || "",
+      authorName: article.authorName || "",
+      authorAvatarUrl: article.authorAvatarUrl || "",
+      authorVerified: Boolean(article.authorVerified),
+      coverImageUrl: article.coverImageUrl || "",
+      publishedAt: article.publishedAt || null,
+      previewExcerpt: article.previewExcerpt || "",
+      engagementSnapshot: article.engagementSnapshot || {},
+      utilityIconSnapshot: article.utilityIconSnapshot || "",
+      addedAt: existing?.addedAt || now,
+    };
+    inbox.readingList = [next, ...inbox.readingList.filter((item) => normalizedSourceUrl(item.sourceUrl) !== article.sourceUrl)];
+    return { inbox, item: next, existing: Boolean(existing) };
+  }
+
+  function removeReadingArticle(inboxValue, sourceUrl) {
+    const inbox = currentInbox(inboxValue);
     const normalizedUrl = normalizedSourceUrl(sourceUrl);
-    const candidates = (inbox?.candidates || []).map((candidate) => ({ ...candidate }));
-    const assets = (inbox?.assets || []).filter((asset) => normalizedSourceUrl(asset.sourceUrl) !== normalizedUrl);
-    const candidate = candidates.find((item) => normalizedSourceUrl(item.sourceUrl) === normalizedUrl);
-    if (candidate?.status === "saved") candidate.status = "new";
-    return { inbox: { ...(inbox || {}), candidates, assets }, removed: assets.length !== (inbox?.assets || []).length };
+    const length = inbox.readingList.length;
+    inbox.readingList = inbox.readingList.filter((item) => normalizedSourceUrl(item.sourceUrl) !== normalizedUrl);
+    return { inbox, removed: inbox.readingList.length !== length };
   }
 
-  globalThis.XToMdInboxStore = { normalizedSourceUrl, saveCapture, removeCapture };
+  function saveArticleAsset(inboxValue, captureValue, { id, now } = {}) {
+    const inbox = currentInbox(inboxValue);
+    const capture = articleReference(captureValue, { requireMarkdown: true });
+    const existing = inbox.assets.find((item) => normalizedSourceUrl(item.sourceUrl) === capture.sourceUrl);
+    const asset = {
+      id: existing?.id || id,
+      contentType: "article",
+      sourceUrl: capture.sourceUrl,
+      title: capture.title || "Untitled Article",
+      authorHandle: capture.authorHandle || "",
+      authorName: capture.authorName || "",
+      authorAvatarUrl: capture.authorAvatarUrl || "",
+      authorVerified: Boolean(capture.authorVerified),
+      coverImageUrl: capture.coverImageUrl || "",
+      publishedAt: capture.publishedAt || null,
+      previewExcerpt: capture.previewExcerpt || "",
+      markdown: String(capture.content || capture.markdown).trim(),
+      tags: existing?.tags || [],
+      usageStatus: existing?.usageStatus === "used" ? "used" : "unused",
+      savedAt: now,
+      updatedAt: now,
+    };
+    inbox.assets = [asset, ...inbox.assets.filter((item) => normalizedSourceUrl(item.sourceUrl) !== capture.sourceUrl)];
+    inbox.readingList = inbox.readingList.filter((item) => normalizedSourceUrl(item.sourceUrl) !== capture.sourceUrl);
+    return { inbox, asset, existing: Boolean(existing) };
+  }
+
+  function updateArticleAsset(inboxValue, assetId, patch, { now } = {}) {
+    const inbox = currentInbox(inboxValue);
+    const asset = inbox.assets.find((item) => item.id === assetId);
+    if (!asset) throw new Error("素材不存在或已被删除。");
+    if (Array.isArray(patch?.tags)) asset.tags = [...new Set(patch.tags.map((tag) => String(tag).trim()).filter(Boolean))];
+    if (["used", "unused"].includes(patch?.usageStatus)) asset.usageStatus = patch.usageStatus;
+    asset.updatedAt = now;
+    return { inbox, asset };
+  }
+
+  function removeArticleAsset(inboxValue, sourceUrl) {
+    const inbox = currentInbox(inboxValue);
+    const normalizedUrl = normalizedSourceUrl(sourceUrl);
+    const length = inbox.assets.length;
+    inbox.assets = inbox.assets.filter((item) => normalizedSourceUrl(item.sourceUrl) !== normalizedUrl);
+    return { inbox, removed: inbox.assets.length !== length };
+  }
+
+  function saveAuthor(inboxValue, author, { id, now } = {}) {
+    const inbox = currentInbox(inboxValue);
+    const handle = String(author?.handle || author?.authorHandle || "").replace(/^@/u, "");
+    if (!/^[A-Za-z0-9_]{1,15}$/u.test(handle)) throw new Error("无法识别 Article 作者。");
+    const existing = inbox.authors.find((item) => item.handle.toLowerCase() === handle.toLowerCase());
+    const item = {
+      id: existing?.id || id,
+      handle,
+      displayName: author.displayName || author.authorName || handle,
+      authorAvatarUrl: author.authorAvatarUrl || "",
+      authorVerified: Boolean(author.authorVerified),
+      description: author.description || "",
+      addedAt: existing?.addedAt || now,
+    };
+    inbox.authors = [item, ...inbox.authors.filter((value) => value.handle.toLowerCase() !== handle.toLowerCase())];
+    return { inbox, author: item, existing: Boolean(existing) };
+  }
+
+  function removeAuthor(inboxValue, handleValue) {
+    const inbox = currentInbox(inboxValue);
+    const handle = String(handleValue || "").replace(/^@/u, "").toLowerCase();
+    const length = inbox.authors.length;
+    inbox.authors = inbox.authors.filter((item) => item.handle.toLowerCase() !== handle);
+    return { inbox, removed: inbox.authors.length !== length };
+  }
+
+  globalThis.XToMdInboxStore = {
+    SCHEMA_VERSION,
+    normalizedSourceUrl,
+    emptyInbox,
+    currentInbox,
+    saveReadingArticle,
+    removeReadingArticle,
+    saveArticleAsset,
+    updateArticleAsset,
+    removeArticleAsset,
+    saveAuthor,
+    removeAuthor,
+  };
 }());
 
-const X_TAB_URL_PATTERNS = [
-  "https://x.com/*",
-  "https://www.x.com/*",
-  "https://twitter.com/*",
-  "https://www.twitter.com/*",
-];
 const CONTENT_INBOX_STORAGE_KEY = "x-to-md-content-inbox";
-const CONTENT_SCRIPT_REVISION = "article-actions-entry-v25";
+const CONTENT_SCRIPT_REVISION = "article-first-v1";
+
+function isExpectedTabLifecycleError(error) {
+  const message = String(error?.message || error || "").trim();
+  return /^(?:Frame with ID \d+ was removed|No tab with id: \d+|No frame with id \d+ in tab \d+|The tab was closed|The frame was removed)\.?$/iu.test(message);
+}
 
 function reportContentScriptError(context, error) {
-  console.error(`[x-to-md] ${context}`, error);
+  if (!isExpectedTabLifecycleError(error)) console.error(`[x-to-md] ${context}`, error);
 }
 
 function isSupportedXTab(tab) {
   try {
     const url = new URL(tab?.url || tab?.pendingUrl || "");
-    return url.protocol === "https:"
-      && ["x.com", "www.x.com", "twitter.com", "www.twitter.com"].includes(url.hostname);
+    return url.protocol === "https:" && ["x.com", "www.x.com", "twitter.com", "www.twitter.com"].includes(url.hostname);
   } catch {
     return false;
   }
 }
 
 async function ensureContentScript(tab) {
-  if (!tab?.id) throw new Error("No active tab.");
-  if (!isSupportedXTab(tab)) return false;
+  if (!tab?.id || !isSupportedXTab(tab)) return false;
   try {
     const ready = await chrome.tabs.sendMessage(tab.id, { type: "x-to-md-ready" });
     if (ready?.ok && ready.revision === CONTENT_SCRIPT_REVISION) return true;
   } catch {
-    // A missing receiver also requires the current packaged content script.
+    // A missing receiver requires the current packaged content script.
   }
-  await chrome.scripting.executeScript({
-    target: { tabId: tab.id },
-    files: ["markdown.js", "content.js"],
-  });
-  const ready = await chrome.tabs.sendMessage(tab.id, { type: "x-to-md-ready" });
-  if (!ready?.ok || ready.revision !== CONTENT_SCRIPT_REVISION) {
-    throw new Error(`Content script revision mismatch: expected ${CONTENT_SCRIPT_REVISION}, received ${ready?.revision || "none"}.`);
-  }
+  const currentTab = await chrome.tabs.get(tab.id);
+  if (!isSupportedXTab(currentTab)) return false;
+  await chrome.scripting.executeScript({ target: { tabId: currentTab.id }, files: ["markdown.js", "content.js"] });
+  const ready = await chrome.tabs.sendMessage(currentTab.id, { type: "x-to-md-ready" });
+  if (!ready?.ok || ready.revision !== CONTENT_SCRIPT_REVISION) throw new Error("Content script revision mismatch.");
   return true;
 }
 
-async function injectOpenXTabs() {
-  const tabs = await chrome.tabs.query({ url: X_TAB_URL_PATTERNS });
-  await Promise.all(tabs.map(async (tab) => {
-    try {
-      await ensureContentScript(tab);
-    } catch (error) {
-      reportContentScriptError(`Could not initialize tab ${tab.id}.`, error);
-    }
-  }));
+function previewValue(capture, { canSave = false } = {}) {
+  return {
+    contentType: capture?.contentType || "article",
+    title: capture?.title || "",
+    markdown: capture?.content || capture?.markdown || "",
+    authorName: capture?.authorName || "",
+    authorHandle: capture?.authorHandle || "",
+    authorAvatarUrl: capture?.authorAvatarUrl || "",
+    authorVerified: Boolean(capture?.authorVerified),
+    coverImageUrl: capture?.coverImageUrl || "",
+    previewExcerpt: capture?.previewExcerpt || "",
+    sourceUrl: capture?.sourceUrl || "",
+    publishedAt: capture?.publishedAt || null,
+    canSave,
+  };
 }
 
-chrome.runtime.onInstalled.addListener(() => {
-  injectOpenXTabs().catch((error) => reportContentScriptError("Installation initialization failed.", error));
-});
+async function readInbox() {
+  const stored = await chrome.storage.local.get(CONTENT_INBOX_STORAGE_KEY);
+  return globalThis.XToMdInboxStore.currentInbox(stored[CONTENT_INBOX_STORAGE_KEY]);
+}
 
-chrome.runtime.onStartup.addListener(() => {
-  injectOpenXTabs().catch((error) => reportContentScriptError("Startup initialization failed.", error));
-});
+async function writeInbox(inbox) {
+  await chrome.storage.local.set({ [CONTENT_INBOX_STORAGE_KEY]: inbox });
+}
 
-injectOpenXTabs().catch((error) => reportContentScriptError("Service worker initialization failed.", error));
+async function mutateStore(method, ...args) {
+  const result = globalThis.XToMdInboxStore[method](await readInbox(), ...args);
+  await writeInbox(result.inbox);
+  return result;
+}
 
 chrome.action.onClicked.addListener((tab) => {
-  if (!tab?.id) return;
-  // Open the Side Panel directly from the user gesture. Content-script
-  // injection is best-effort and must never block the primary entry point.
-  if (chrome.sidePanel?.open && tab.windowId) {
-    chrome.sidePanel.open({ windowId: tab.windowId }).catch(() => {
-      ensureContentScript(tab)
-        .then((isReady) => isReady && chrome.tabs.sendMessage(tab.id, { type: "toggle-candidate-overlay" }))
-        .catch((error) => reportContentScriptError(`Could not initialize tab ${tab.id}.`, error));
-    });
-    ensureContentScript(tab).catch((error) => reportContentScriptError(`Could not initialize tab ${tab.id}.`, error));
-    return;
-  }
-  ensureContentScript(tab)
-    .then((isReady) => isReady && chrome.tabs.sendMessage(tab.id, { type: "toggle-candidate-overlay" }))
-    .catch((error) => reportContentScriptError(`Could not initialize tab ${tab.id}.`, error));
-});
-
-chrome.runtime.onMessage.addListener((message, sender) => {
-  if (message?.type !== "capture-completed") return;
-  chrome.runtime.sendMessage({ type: "capture-completed", sourceUrl: message.sourceUrl }).catch(() => {});
+  if (!tab?.id || !tab.windowId || !chrome.sidePanel?.open) return;
+  chrome.sidePanel.open({ windowId: tab.windowId }).catch((error) => reportContentScriptError("Could not open Side Panel.", error));
+  ensureContentScript(tab).catch((error) => reportContentScriptError(`Could not initialize tab ${tab.id}.`, error));
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message?.type === "save-capture-to-library") {
-    chrome.storage.local.get(CONTENT_INBOX_STORAGE_KEY)
-      .then((stored) => {
-        const result = globalThis.XToMdInboxStore.saveCapture(
-          stored[CONTENT_INBOX_STORAGE_KEY],
-          message.capture,
-          { id: `asset_${crypto.randomUUID()}`, now: new Date().toISOString() },
-        );
-        return chrome.storage.local.set({ [CONTENT_INBOX_STORAGE_KEY]: result.inbox }).then(() => result);
-      })
-      .then((result) => sendResponse({ ok: true, existing: result.existing }))
-      .catch((error) => sendResponse({ error: error.message || "无法保存素材。" }));
+  const now = () => new Date().toISOString();
+  const respond = (promise, fallback) => {
+    promise.then((result) => sendResponse({ ok: true, ...result })).catch((error) => sendResponse({ error: error.message || fallback }));
     return true;
+  };
+
+  if (message?.type === "save-reading-article") {
+    return respond(mutateStore("saveReadingArticle", message.reference, { id: `reading_${crypto.randomUUID()}`, now: now() }), "无法加入待读。");
   }
-  if (message?.type === "remove-capture-from-library") {
-    chrome.storage.local.get(CONTENT_INBOX_STORAGE_KEY)
-      .then((stored) => {
-        const result = globalThis.XToMdInboxStore.removeCapture(
-          stored[CONTENT_INBOX_STORAGE_KEY],
-          message.sourceUrl,
-        );
-        return chrome.storage.local.set({ [CONTENT_INBOX_STORAGE_KEY]: result.inbox }).then(() => result);
-      })
-      .then((result) => sendResponse({ ok: true, removed: result.removed }))
-      .catch((error) => sendResponse({ error: error.message || "无法移除素材。" }));
-    return true;
+  if (message?.type === "remove-reading-article") {
+    return respond(mutateStore("removeReadingArticle", message.sourceUrl), "无法从待读移除。");
+  }
+  if (message?.type === "save-article-asset") {
+    const operation = message.assetId
+      ? mutateStore("updateArticleAsset", message.assetId, message.patch, { now: now() })
+      : mutateStore("saveArticleAsset", message.capture, { id: `asset_${crypto.randomUUID()}`, now: now() });
+    return respond(operation, "无法保存素材。");
+  }
+  if (message?.type === "remove-article-asset") {
+    return respond(mutateStore("removeArticleAsset", message.sourceUrl), "无法移除素材。");
+  }
+  if (message?.type === "save-author") {
+    return respond(mutateStore("saveAuthor", message.author, { id: `author_${crypto.randomUUID()}`, now: now() }), "无法收藏作者。");
+  }
+  if (message?.type === "remove-author") {
+    return respond(mutateStore("removeAuthor", message.handle), "无法取消收藏作者。");
   }
   if (message?.type === "open-markdown-preview") {
-    chrome.storage.session.set({ "library-markdown-preview": {
-      title: message.capture?.title || "",
-      markdown: message.capture?.content || "",
-      authorName: message.capture?.authorName || "",
-      authorHandle: message.capture?.authorHandle || "",
-      sourceUrl: message.capture?.sourceUrl || "",
-      publishedAt: message.capture?.publishedAt || null,
-    } })
-      .then(() => chrome.tabs.create({ url: chrome.runtime.getURL("preview.html?mode=library") }))
-      .then(() => sendResponse({ ok: true }))
-      .catch((error) => sendResponse({ error: error.message || "无法打开 Markdown 预览。" }));
-    return true;
+    const preview = previewValue(message.capture, { canSave: Boolean(message.canSave) });
+    return respond(
+      chrome.storage.session.set({ "library-markdown-preview": preview })
+        .then(() => chrome.tabs.create({ url: chrome.runtime.getURL("preview.html?mode=library") }))
+        .then(() => ({})),
+      "无法打开 Markdown 预览。",
+    );
   }
   if (message?.type === "open-side-panel") {
     const windowId = sender.tab?.windowId;
-    const view = ["candidates", "assets", "subscriptions"].includes(message.view) ? message.view : "candidates";
+    const view = ["readingList", "assets", "authors"].includes(message.view) ? message.view : "readingList";
     if (!windowId || !chrome.sidePanel?.open) {
       sendResponse({ error: "请点击扩展图标打开 Side Panel。" });
       return;
     }
-    chrome.sidePanel.open({ windowId })
-      .then(() => chrome.storage.session.set({ "x-to-md-sidepanel-target": view }))
-      .then(() => chrome.runtime.sendMessage({ type: "navigate-sidepanel", view }).catch(() => {}))
-      .then(() => sendResponse({ ok: true, view }))
-      .catch((error) => sendResponse({ error: error.message || "无法打开 Side Panel。" }));
-    return true;
+    return respond(
+      chrome.sidePanel.open({ windowId })
+        .then(() => chrome.storage.session.set({ "x-to-md-sidepanel-target": view }))
+        .then(() => chrome.runtime.sendMessage({ type: "navigate-sidepanel", view }).catch(() => {}))
+        .then(() => ({ view })),
+      "无法打开 Side Panel。",
+    );
   }
 });

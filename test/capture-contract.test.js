@@ -3,642 +3,200 @@ import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import test from "node:test";
 
+const source = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
+
 function markdownTools() {
-  const source = readFileSync(new URL("../markdown.js", import.meta.url), "utf8");
   const context = { globalThis: {} };
-  runInNewContext(source, context);
+  runInNewContext(source("../markdown.js"), context);
   return context.globalThis.XToXhsMarkdown;
 }
 
 function backgroundContext() {
-  const source = readFileSync(new URL("../background.js", import.meta.url), "utf8");
   const event = { addListener() {} };
   const context = {
     URL,
+    globalThis: null,
     chrome: {
-      runtime: { onInstalled: event, onStartup: event, onMessage: event },
+      runtime: { onMessage: event, getURL: (value) => value, sendMessage: async () => ({}) },
       action: { onClicked: event },
-      tabs: { query: async () => [] },
+      tabs: { sendMessage: async () => ({}), get: async (id) => ({ id }), create: async () => ({}) },
+      scripting: { executeScript: async () => {} },
+      storage: { local: { get: async () => ({}), set: async () => {} }, session: { set: async () => {} } },
+      sidePanel: { open: async () => {} },
     },
     console: { error() {} },
   };
-  runInNewContext(source, context);
+  context.globalThis = context;
+  runInNewContext(source("../background.js"), context);
   return context;
 }
 
-function inboxStore() {
-  return backgroundContext().XToMdInboxStore;
+function article(overrides = {}) {
+  return {
+    contentType: "article",
+    sourceUrl: "https://x.com/example/article/42?ref=share",
+    title: "Article title",
+    authorHandle: "example",
+    authorName: "Example",
+    ...overrides,
+  };
 }
 
-test("复制 Markdown 保留文本结构且过滤图片", () => {
+test("Markdown 保留文本结构且过滤图片", () => {
   const markdown = markdownTools().blocksToMarkdown([
     { type: "heading", level: 1, text: "文章标题" },
     { type: "paragraph", text: "正文内容" },
     { type: "image", url: "https://pbs.twimg.com/media/example" },
     { type: "code", text: "const answer = 42;", language: "js" },
   ], { includeImages: false });
-
   assert.match(markdown, /^# 文章标题\n\n正文内容/u);
   assert.match(markdown, /```js\nconst answer = 42;/u);
   assert.doesNotMatch(markdown, /pbs\.twimg\.com/u);
 });
 
-test("采集器保留 X Article 的正文与懒加载兼容选择器", () => {
-  const source = readFileSync(new URL("../content.js", import.meta.url), "utf8");
-
-  assert.match(source, /p, h1, h2, h3, h4, h5, h6, li, blockquote/u);
-  assert.match(source, /longform-unstyled \.public-DraftStyleDefault-block/u);
-  assert.match(source, /show more\|显示更多/u);
-  assert.match(source, /revealLazyContent/u);
-  assert.match(source, /CODE_NODE_SELECTOR/u);
-  assert.match(source, /seenCodeContainers/u);
-  assert.match(source, /codeLanguageOf/u);
-  assert.match(source, /articleMarker/u);
-  assert.match(source, /lines\[articleMarker \+ 1\]/u);
-  assert.doesNotMatch(source, /\[class\*="monospace"\].*type: "code"/su);
+test("Article 采集只保留一个与文档标题相同的一级标题", () => {
+  const title = "Obsidian 别只装完就吃灰";
+  const blocks = markdownTools().withoutRepeatedDocumentTitle([
+    { type: "heading", level: 1, text: title },
+    { type: "paragraph", text: "正文第一段" },
+    { type: "heading", level: 1, text: `  ${title}\n` },
+    { type: "heading", level: 2, text: title },
+  ], title);
+  assert.deepEqual(blocks.map((block) => [block.type, block.level, block.text]), [
+    ["heading", 1, title],
+    ["paragraph", undefined, "正文第一段"],
+    ["heading", 2, title],
+  ]);
 });
 
 test("Manifest 保持独立运行所需的最小权限", () => {
-  const manifest = JSON.parse(readFileSync(new URL("../manifest.json", import.meta.url), "utf8"));
-
+  const manifest = JSON.parse(source("../manifest.json"));
   assert.equal(manifest.name, "x-to-md");
-  assert.equal(manifest.version, "2.3.2");
   assert.deepEqual(manifest.permissions, ["activeTab", "storage", "sidePanel", "scripting"]);
   assert.deepEqual(manifest.side_panel, { default_path: "sidepanel.html" });
   assert.equal(manifest.action.default_popup, undefined);
   assert.equal(manifest.background.service_worker, "background.js");
-  assert.equal(manifest.web_accessible_resources, undefined);
-  const background = readFileSync(new URL("../background.js", import.meta.url), "utf8");
-  assert.doesNotMatch(background, /importScripts/u);
-  assert.match(background, /registerInboxStore/u);
-  assert.match(background, /type === "save-capture-to-library"/u);
-  assert.match(background, /type === "remove-capture-from-library"/u);
-  assert.doesNotMatch(background, /isExtractableXContent/u);
-  assert.match(background, /function isSupportedXTab\(tab\)/u);
-  assert.match(background, /if \(!isSupportedXTab\(tab\)\) return false;/u);
-  assert.match(background, /then\(\(isReady\) => isReady && chrome\.tabs\.sendMessage/u);
-  assert.match(background, /toggle-candidate-overlay/u);
-  assert.match(background, /chrome\.sidePanel\.open/u);
-  assert.match(background, /chrome\.sidePanel\.open\(\{ windowId: tab\.windowId \}\)\.catch/u);
-  assert.match(background, /chrome\.sidePanel\.open\([\s\S]+?ensureContentScript\(tab\)\.catch/u);
-  assert.match(background, /ensureContentScript/u);
-  assert.match(background, /chrome\.scripting\.executeScript/u);
-  assert.match(background, /ready\?\.ok && ready\.revision === CONTENT_SCRIPT_REVISION/u);
-  assert.match(background, /CONTENT_SCRIPT_REVISION = "article-actions-entry-v25"/u);
-  assert.match(background, /Content script revision mismatch/u);
-  assert.match(background, /Service worker initialization failed/u);
-  assert.match(background, /reportContentScriptError/u);
-  assert.match(background, /files: \["markdown\.js", "content\.js"\]/u);
-  assert.match(background, /injectOpenXTabs/u);
-  assert.match(background, /chrome\.runtime\.onInstalled/u);
-  assert.match(background, /chrome\.runtime\.onStartup/u);
 });
 
-test("后台只向 X/Twitter 页面注入内容脚本", () => {
-  const runtime = backgroundContext();
-
-  assert.equal(runtime.isSupportedXTab({ url: "https://x.com/home" }), true);
-  assert.equal(runtime.isSupportedXTab({ url: "https://www.twitter.com/example/status/1" }), true);
-  assert.equal(runtime.isSupportedXTab({ url: "chrome://extensions/" }), false);
-  assert.equal(runtime.isSupportedXTab({ url: "https://example.com/" }), false);
+test("新 schema 不迁移开发期数据", () => {
+  const store = backgroundContext().XToMdInboxStore;
+  assert.deepEqual(JSON.parse(JSON.stringify(store.emptyInbox())), {
+    schemaVersion: 1, readingList: [], authors: [], assets: [],
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(store.currentInbox({ candidates: [{}], subscriptions: [{}], assets: [{}] }))), {
+    schemaVersion: 1, readingList: [], authors: [], assets: [],
+  });
 });
 
-test("素材只在明确保存后进入素材库并按来源去重", () => {
-  const store = inboxStore();
-  const capture = { sourceUrl: "https://x.com/example/status/42?foo=bar", title: "Source title", authorHandle: "@example", authorName: "Capture author", coverImageUrl: "https://pbs.twimg.com/media/capture.jpg", publishedAt: "2026-08-01T00:00:00.000Z", previewExcerpt: "Capture excerpt", content: "# Source title" };
-  const inbox = { candidates: [{ id: "article_42", sourceUrl: "https://x.com/example/status/42", status: "extracted", authorName: "Candidate author", authorAvatarUrl: "https://pbs.twimg.com/profile_images/avatar.jpg", authorVerified: true, coverImageUrl: "https://pbs.twimg.com/media/candidate.jpg", publishedAt: "2026-08-02T00:00:00.000Z", previewExcerpt: "Candidate excerpt" }], assets: [] };
+test("待读只接受 Article 并按规范化 URL 去重", () => {
+  const store = backgroundContext().XToMdInboxStore;
+  const first = store.saveReadingArticle(store.emptyInbox(), article(), { id: "reading_1", now: "2026-08-14T00:00:00Z" });
+  const second = store.saveReadingArticle(first.inbox, article({ title: "Updated" }), { id: "reading_2", now: "2026-08-14T01:00:00Z" });
+  assert.equal(second.inbox.readingList.length, 1);
+  assert.equal(second.inbox.readingList[0].id, "reading_1");
+  assert.equal(second.inbox.readingList[0].title, "Updated");
+  assert.equal(second.inbox.readingList[0].sourceUrl, "https://x.com/example/article/42");
+  assert.equal(second.inbox.readingList[0].addedAt, "2026-08-14T00:00:00Z");
+  assert.equal("markdown" in second.inbox.readingList[0], false);
+  assert.throws(() => store.saveReadingArticle(second.inbox, article({ contentType: "post" })), /Article/u);
+  assert.throws(() => store.saveReadingArticle(second.inbox, article({ sourceUrl: "https://example.com/article/42" })), /Article/u);
+});
 
-  const saved = store.saveCapture(inbox, capture, { id: "asset_42", now: "2026-08-11T12:00:00.000Z" });
-  assert.equal(inbox.assets.length, 0);
-  assert.equal(saved.existing, false);
+test("素材只在 Article Markdown 有效时保存并同步移出待读", () => {
+  const store = backgroundContext().XToMdInboxStore;
+  const queued = store.saveReadingArticle(store.emptyInbox(), article(), { id: "reading_1", now: "2026-08-14T00:00:00Z" }).inbox;
+  assert.throws(() => store.saveArticleAsset(queued, article({ content: "" })), /Markdown/u);
+  assert.equal(queued.assets.length, 0);
+  assert.equal(queued.readingList.length, 1);
+
+  const saved = store.saveArticleAsset(queued, article({ content: "# Article title\n\nBody" }), { id: "asset_1", now: "2026-08-14T01:00:00Z" });
   assert.equal(saved.inbox.assets.length, 1);
-  assert.equal(saved.inbox.assets[0].candidateId, "article_42");
-  assert.equal(saved.inbox.assets[0].usageStatus, "unused");
-  assert.equal(saved.inbox.assets[0].publishedLinks.length, 0);
-  assert.equal(saved.inbox.assets[0].authorName, "Candidate author");
-  assert.equal(saved.inbox.assets[0].coverImageUrl, "https://pbs.twimg.com/media/candidate.jpg");
-  assert.equal(saved.inbox.assets[0].publishedAt, "2026-08-02T00:00:00.000Z");
-  assert.equal(saved.inbox.assets[0].previewExcerpt, "Candidate excerpt");
-  assert.equal(saved.inbox.candidates[0].status, "saved");
-
-  const repeated = store.saveCapture(saved.inbox, capture, { id: "asset_duplicate", now: "2026-08-11T12:01:00.000Z" });
-  assert.equal(repeated.existing, true);
-  assert.equal(repeated.inbox.assets.length, 1);
-
-  const removed = store.removeCapture(saved.inbox, capture.sourceUrl);
-  assert.equal(removed.removed, true);
-  assert.equal(removed.inbox.assets.length, 0);
-  assert.equal(removed.inbox.candidates[0].status, "new");
+  assert.equal(saved.inbox.readingList.length, 0);
+  assert.equal(saved.asset.markdown, "# Article title\n\nBody");
+  assert.equal(saved.asset.usageStatus, "unused");
+  assert.deepEqual(Array.from(saved.asset.tags), []);
+  assert.equal("markdownState" in saved.asset, false);
+  assert.throws(() => store.saveArticleAsset(saved.inbox, article({ contentType: "post", content: "Post" })), /Article/u);
 });
 
-test("直接保存的 Article 使用用户主动提取的展示元数据", () => {
-  const store = inboxStore();
-  const capture = { sourceUrl: "https://x.com/example/article/84", title: "Direct title", authorHandle: "@example", authorName: "Direct author", authorAvatarUrl: "https://pbs.twimg.com/profile_images/direct.jpg", authorVerified: true, coverImageUrl: "https://pbs.twimg.com/media/direct.jpg", publishedAt: "2026-08-03T00:00:00.000Z", previewExcerpt: "Direct excerpt", content: "# Direct title" };
-  const saved = store.saveCapture({ candidates: [], assets: [] }, capture, { id: "asset_84", now: "2026-08-11T12:00:00.000Z" });
-
-  const asset = saved.inbox.assets[0];
-  assert.equal(asset.candidateId, null);
-  assert.equal(asset.authorName, "Direct author");
-  assert.equal(asset.authorAvatarUrl, "https://pbs.twimg.com/profile_images/direct.jpg");
-  assert.equal(asset.authorVerified, true);
-  assert.equal(asset.coverImageUrl, "https://pbs.twimg.com/media/direct.jpg");
-  assert.equal(asset.publishedAt, "2026-08-03T00:00:00.000Z");
-  assert.equal(asset.previewExcerpt, "Direct excerpt");
-  assert.equal(asset.markdown, "# Direct title");
+test("重复保存素材覆盖 Markdown 并保留标签与使用状态", () => {
+  const store = backgroundContext().XToMdInboxStore;
+  const first = store.saveArticleAsset(store.emptyInbox(), article({ content: "First" }), { id: "asset_1", now: "2026-08-14T00:00:00Z" });
+  const updated = store.updateArticleAsset(first.inbox, "asset_1", { tags: ["idea"], usageStatus: "used" }, { now: "2026-08-14T00:30:00Z" });
+  const second = store.saveArticleAsset(updated.inbox, article({ content: "Second", title: "New title" }), { id: "asset_2", now: "2026-08-14T01:00:00Z" });
+  assert.equal(second.inbox.assets.length, 1);
+  assert.equal(second.asset.id, "asset_1");
+  assert.equal(second.asset.markdown, "Second");
+  assert.equal(second.asset.title, "New title");
+  assert.deepEqual(Array.from(second.asset.tags), ["idea"]);
+  assert.equal(second.asset.usageStatus, "used");
 });
 
-test("收件箱来源 URL 以内容页为准并剥离 media 子路由", () => {
-  const store = inboxStore();
-
-  assert.equal(
-    store.normalizedSourceUrl("https://x.com/AnatoliKopadze/status/2049492553133629950?ref=share"),
-    "https://x.com/AnatoliKopadze/status/2049492553133629950",
-  );
-  assert.equal(
-    store.normalizedSourceUrl("https://x.com/KKaWSB/article/2087333705853649186/media/2087333606771601408"),
-    "https://x.com/KKaWSB/article/2087333705853649186",
-  );
+test("作者按 handle 去重并可取消收藏", () => {
+  const store = backgroundContext().XToMdInboxStore;
+  const first = store.saveAuthor(store.emptyInbox(), { handle: "Example", displayName: "One" }, { id: "author_1", now: "2026-08-14T00:00:00Z" });
+  const second = store.saveAuthor(first.inbox, { handle: "@example", displayName: "Two" }, { id: "author_2", now: "2026-08-14T01:00:00Z" });
+  assert.equal(second.inbox.authors.length, 1);
+  assert.equal(second.author.id, "author_1");
+  assert.equal(second.author.displayName, "Two");
+  assert.equal(store.removeAuthor(second.inbox, "EXAMPLE").inbox.authors.length, 0);
 });
 
-test("Content Inbox 提供上下文感知收件箱、关注作者和素材库 Side Panel", () => {
-  const html = readFileSync(new URL("../sidepanel.html", import.meta.url), "utf8");
-  const script = readFileSync(new URL("../sidepanel.js", import.meta.url), "utf8");
-  const css = readFileSync(new URL("../sidepanel.css", import.meta.url), "utf8");
-  const content = readFileSync(new URL("../content.js", import.meta.url), "utf8");
+test("Background 只暴露 Article-first 持久化与一次性预览协议", () => {
+  const background = source("../background.js");
+  for (const type of ["save-reading-article", "remove-reading-article", "save-article-asset", "remove-article-asset", "save-author", "remove-author", "open-markdown-preview"]) {
+    assert.match(background, new RegExp(`message\\?\\.type === "${type}"`, "u"));
+  }
+  assert.match(background, /CONTENT_SCRIPT_REVISION = "article-first-v1"/u);
+  assert.match(background, /files: \["markdown\.js", "content\.js"\]/u);
+  assert.doesNotMatch(background, /materialize|preview-job|capture-source|publishedLinks/u);
+});
 
-  assert.match(html, /候选集/u);
-  assert.match(html, /关注作者/u);
-  assert.match(html, /素材库/u);
-  assert.doesNotMatch(html, /brand-mark/u);
-  assert.match(html, /class="tab-badge"/u);
-  assert.doesNotMatch(html, /current-context/u);
-  assert.match(html, /data-view="settings"/u);
-  assert.match(html, /data-action="navigation-restore"/u);
-  assert.match(script, /pageHeader\.hidden = !\["stats", "settings"\]\.includes\(state\.page\)/u);
-  assert.match(css, /\.page-header\[hidden\] \{ display: none; \}/u);
-  assert.doesNotMatch(script, /discover-articles/u);
-  assert.doesNotMatch(script, /Receiving end does not exist/u);
-  assert.doesNotMatch(script, /tabs\.reload\(tab\.id\)/u);
-  assert.match(script, /chrome\.storage\.local/u);
-  assert.match(script, /chrome\.storage\.onChanged/u);
-  assert.match(script, /NAVIGATION_BADGES_STORAGE_KEY/u);
-  assert.match(script, /NAVIGATION_LAYOUT_STORAGE_KEY/u);
-  assert.match(script, /setNavigationPlacement/u);
-  assert.match(script, /data-navigation-placement/u);
-  assert.match(script, /renderNavigationBadges/u);
-  assert.match(script, /markNavigationViewed/u);
-  assert.match(script, /tab\.toggleAttribute\("aria-current", isCurrentPage\)/u);
-  assert.match(script, /badgeTimestamp\(item, viewName\) > seenAt/u);
-  assert.match(css, /\.tab-badge \{[^}]*min-width: 18px[^}]*background: var\(--x-blue\)/u);
-  assert.match(css, /\.tab-badge\[hidden\] \{ display: none; \}/u);
-  assert.match(css, /\.tab svg \{[^}]*width: 26px[^}]*fill: none[^}]*stroke-width: 1\.9/u);
-  assert.match(css, /\.tab\.is-active \{[^}]*color: var\(--x-blue\)/u);
-  assert.match(css, /\.tab\.is-active svg \{[^}]*fill: currentColor[^}]*stroke: none/u);
-  assert.doesNotMatch(css, /\.tab\[data-view="assets"\] svg/u);
-  assert.match(css, /\.tabbar \{[^}]*flex: 0 0 56px[^}]*width: 56px/u);
-  assert.match(css, /\.tab \{[^}]*flex: 0 0 48px[^}]*width: 48px[^}]*height: 48px[^}]*border-radius: 50%/u);
-  assert.match(css, /\.inbox\.nav-right \{ flex-direction: row-reverse; \}/u);
-  assert.match(css, /\.inbox\.nav-hidden \.tabbar \{ display: none; \}/u);
-  assert.match(script, /loadData\(\)\.then\(\(\) => render\(\)\)/u);
-  assert.doesNotMatch(script, /changes\[STORAGE_KEY\][\s\S]{0,180}markNavigationViewed/u);
-  assert.match(script, /candidateSort: "addedAt"/u);
-  assert.match(script, /data-candidate-sort="addedAt"/u);
-  assert.match(script, /data-candidate-sort="publishedAt"/u);
-  assert.match(script, /sortedCandidates/u);
-  assert.match(content, /const addedAt = new Date\(\)\.toISOString\(\)/u);
-  assert.match(content, /subscriptions\.push\(\{ id: `sub_\$\{crypto\.randomUUID\?\.\(\) \|\| Date\.now\(\)\}`, handle: author\.handle, addedAt/u);
-  assert.match(script, /新发现/u);
-  assert.match(script, /已保存素材/u);
-  assert.match(script, /coverImageUrl/u);
-  assert.match(script, /authorAvatarUrl/u);
-  assert.match(script, /previewExcerpt/u);
-  assert.match(script, /engagementSnapshot/u);
-  assert.match(script, /authorVerified/u);
-  assert.match(script, /class="author-cell"/u);
-  assert.match(script, /class="author-profile-link"/u);
-  assert.match(script, /https:\/\/x\.com\/\$\{String\(subscription\.handle/u);
-  assert.match(script, /target="_blank" rel="noreferrer" aria-label="Open/u);
-  assert.match(script, /class="follow-button is-following"/u);
-  assert.match(script, />Following</u);
-  assert.match(script, />unfollow</u);
-  assert.match(script, /subscription-unfollow/u);
-  assert.doesNotMatch(script, /subscription-(?:open|toggle|edit|delete)/u);
-  assert.doesNotMatch(script, /addSubscription|renderSubscriptionDetail|fetchArticles/u);
-  assert.doesNotMatch(content, /discover-articles/u);
-  assert.match(content, /authorPresentationFromElement/u);
-  assert.match(content, /normalizedIdentity/u);
-  assert.match(content, /const identityLines = \[\.\.\.root\.querySelectorAll/u);
-  assert.match(content, /lines\.some\(\(text\) => normalizedHandleText\(text\) === normalizedHandleText\(handle\)\)/u);
-  assert.match(content, /descriptionCandidates/u);
-  assert.match(content, /!node\.closest\('a\[href\]'\)/u);
-  assert.match(content, /!node\.querySelector\('div\[dir="auto"\]'\)/u);
-  assert.match(content, /description: author\.description/u);
-  assert.match(content, /authorVerified: author\.authorVerified/u);
-  assert.match(content, /existingSubscription/u);
-  assert.match(script, /class="verified-badge article-verified"/u);
-  assert.match(script, /aria-label="Verified account"/u);
-  assert.match(css, /\.verified-badge svg \{[^}]*fill: rgb\(29, 155, 240\)/u);
-  assert.doesNotMatch(script, /tokenStyle/u);
-  assert.match(script, /xIcon/u);
-  assert.doesNotMatch(script, /style="\$\{tokenStyle/u);
-  assert.match(content, /article-cover-image/u);
-  assert.match(content, /id: articleCandidateId\(sourceUrl\)/u);
-  assert.match(content, /currentPageContext/u);
-  assert.match(content, /pageKind: "article"/u);
-  assert.match(content, /pageKind: "author-articles"/u);
-  assert.match(content, /get-current-context/u);
-  assert.match(content, /initializeXToMdContentScript/u);
-  assert.match(content, /new CustomEvent\("x-to-md:dispose-content-script"\)/u);
-  assert.match(content, /globalThis\.__xToMdContentScript\?\.dispose\?\.\(\)/u);
-  assert.match(content, /extension context may already be invalidated during reload/u);
-  assert.match(content, /diagnostics: articleMenuDiagnostics/u);
-  assert.match(content, /contentScriptAbortController\.abort\(\)/u);
-  assert.match(content, /chrome\.runtime\.onMessage\.removeListener/u);
-  assert.doesNotMatch(content, /bookmarkCandidateState|x-to-md-bookmark-candidate-toolbar|handleBookmarkButtonEntry|positionBookmarkCandidateToolbar/u);
-  assert.match(content, /isWithinAnchorOrToolbar\(event\.relatedTarget, followSubscriptionState\?\.followButton/u);
-  assert.match(content, /x-to-md-article-actions-menu/u);
-  assert.match(content, /injectArticleActionsEntry/u);
-  assert.match(content, /grokActionsButtonFromRoot/u);
-  assert.match(content, /button\[aria-label="Grok actions"\]/u);
-  assert.doesNotMatch(content, /grokActionsButtonFromRoot[\s\S]{0,300}getClientRects/u);
-  assert.match(content, /data-x-to-md-article-actions-entry/u);
-  assert.match(content, /const entrySlot = grokButton\.parentElement\.cloneNode\(false\);/u);
-  assert.match(content, /entrySlot\.style\.marginLeft = "auto";/u);
-  assert.match(content, /grokButton\.parentElement\.before\(entrySlot\);/u);
-  assert.match(content, /const entryIcon = entry\.querySelector\("svg"\);/u);
-  assert.match(content, /entryIcon\.setAttribute\("viewBox", "0 0 24 24"\);/u);
-  assert.match(content, /document\.createElementNS\("http:\/\/www\.w3\.org\/2000\/svg", "path"\)/u);
-  assert.match(content, /button\[data-x-to-md-article-actions-entry\]:hover/u);
-  assert.match(content, /background-color: rgba\(83, 100, 113, 0\.1\)/u);
-  assert.match(content, /startArticleActionsEntryObserver/u);
-  assert.match(content, /const timelineRoot = document\.querySelector\("main"\);/u);
-  assert.match(content, /recordArticleMenuDiagnostic\("waiting-for-main"\)/u);
-  assert.match(content, /articleActionsEntryStartTimer = window\.setTimeout/u);
-  assert.match(content, /recordArticleMenuDiagnostic\("observing-main"\)/u);
-  assert.match(content, /articleActionsEntryObserver\.observe\(timelineRoot, \{ childList: true, subtree: true \}\)/u);
-  assert.match(content, /roots\.forEach\(injectArticleActionsEntry\)/u);
-  assert.match(content, /articleActionsEntryObserver\?\.disconnect\(\)/u);
-  assert.doesNotMatch(content, /injectArticleActionsEntryFromTarget/u);
-  assert.match(content, /M12 2\.5C10\.45 5\.24 6\.5 9\.55/u);
-  assert.doesNotMatch(content, /chrome\.runtime\.getURL\("assets\/icons\/x-to-md-icon-32\.png"\)/u);
-  assert.match(content, /\[data-testid="cellInnerDiv"\]/u);
-  assert.match(content, /articleMoreTriggerState/u);
-  assert.match(content, /function articleActionsAuthor/u);
-  assert.match(content, /authorPresentationFromElement/u);
-  assert.match(content, /articleCandidateFromListRoot\(root\)/u);
-  assert.match(content, /openArticleActionsFromEntry/u);
-  assert.match(content, /showArticleActionsMenu\(entry, candidate, root\)/u);
-  assert.match(content, /positionArticleActionsMenu/u);
-  assert.match(content, /role", "menu"/u);
-  assert.doesNotMatch(content, /caret\.click\(\)|scheduleArticleMoreMenu|visibleNativeMenu/u);
-  assert.match(content, /event\.key === "Escape" && articleMoreMenuState/u);
+test("Content Script 实现普通 Post 列表排除与固定菜单矩阵", () => {
+  const content = source("../content.js");
+  assert.match(content, /function contentCandidateForActionsRoot\(root\)/u);
+  assert.match(content, /isArticleSourcePage\(\) \? contentCandidateFromPage/u);
+  assert.match(content, /: articleCandidateFromListRoot\(root\)/u);
+  assert.match(content, /if \(!cover && articleMarker < 0 && !isArticlesIndexPage\(\)\) return null;/u);
+  assert.match(content, /if \(candidate\.contentType === "post"\) \{\s*menu\.append\(actionRow\("复制 Markdown"/su);
+  assert.match(content, /else if \(!isArticleSourcePage\(\)\) \{\s*menu\.append\(actionRow\(isInReadingList \? "从待读移除" : "加入待读"/su);
+  assert.match(content, /actionRow\(isInLibrary \? "从素材库移除" : "保存为素材"[\s\S]*actionRow\("预览 \/ 复制 Markdown"[\s\S]*actionRow\(isAuthorSaved \? "取消收藏作者" : "收藏作者"/u);
   assert.match(content, /window\.addEventListener\("resize", removeArticleMoreMenu/u);
   assert.match(content, /window\.addEventListener\("scroll", removeArticleMoreMenu/u);
-  assert.match(content, /revision: CONTENT_SCRIPT_REVISION/u);
-  assert.match(content, /CONTENT_SCRIPT_REVISION = "article-actions-entry-v25"/u);
-  assert.match(content, /data-x-to-md-content-script-revision/u);
-  assert.match(content, /data-x-to-md-article-actions-stage/u);
-  assert.match(content, /button\[aria-label\*="Grok" i\]/u);
-  assert.match(content, /missing-actions-entry-context/u);
-  assert.doesNotMatch(content, /#layers|articleMenuMountObserver|observeArticleMenuMounts/u);
-  assert.match(content, /missing-menu-context/u);
-  assert.match(content, /actions-menu-opened/u);
-  assert.match(content, /console\.error\("\[x-to-md\] Could not inject Article menu\.", error\)/u);
-  assert.match(content, /document\.createElement\("button"\)/u);
-  assert.match(content, /row\.setAttribute\("role", "menuitem"\)/u);
-  assert.match(content, /labelSlot\.textContent = label/u);
-  assert.doesNotMatch(content, /escapeHtml/u);
-  assert.doesNotMatch(content, /\(\?:Embed\|Report\) \(\?:Article\|Post\)/u);
-  assert.match(content, /actionRow\(isFollowing \? "取消关注" : "关注"/u);
-  assert.match(content, /预览\/复制 Markdown/u);
-  assert.match(content, /加入素材库/u);
-  assert.doesNotMatch(content, /template\.cloneNode\(true\)/u);
-  assert.doesNotMatch(content, /color: rgb\(29, 155, 240\)/u);
-  assert.doesNotMatch(content, /currentPageContext[\s\S]{0,500}content:/u);
-  assert.doesNotMatch(content, /articlePresentationTokens/u);
-  assert.match(script, /article-engagement/u);
-  assert.match(script, /data-action="candidate-remove"/u);
-  assert.match(script, /从候选集移除/u);
-  assert.match(script, /\$\{date\.getMonth\(\) \+ 1\}\/\$\{date\.getDate\(\)\}/u);
-  assert.match(script, /article-date">· \$\{escapeHtml\(formatDate\(candidate\.publishedAt\)\)\}/u);
-  assert.match(script, /article-overflow-slot/u);
-  assert.doesNotMatch(script, /candidate-(?:ignore|save)/u);
-  assert.doesNotMatch(script, /忽略候选|候选已忽略/u);
-  assert.doesNotMatch(script, /在 X 中原样预览/u);
-  assert.doesNotMatch(script, /open-native-article-preview/u);
-  assert.doesNotMatch(script, /previewCandidateOnX/u);
-  assert.doesNotMatch(readFileSync(new URL("../background.js", import.meta.url), "utf8"), /open-native-preview/u);
-  assert.match(script, /candidateQuery: ""/u);
-  assert.match(script, /candidateDate: "today"/u);
-  assert.match(script, /搜索候选集/u);
-  assert.match(script, /\["today", "yesterday", "thisWeek", "lastWeek", "thisMonth"\]/u);
-  assert.match(script, /data-candidate-date="\$\{date\}"/u);
-  assert.match(script, /timestamp\(candidate\.addedAt\)/u);
-  assert.doesNotMatch(script, /data-candidate-date-input|type="month"/u);
-  assert.match(script, /candidate-date-count/u);
-  assert.match(script, /candidateCountForDate/u);
-  assert.match(script, /aria-label="\$\{label\} \$\{count\} 篇"/u);
-  assert.doesNotMatch(script, /收件箱总数/u);
-  assert.match(script, /candidate-chart/u);
-  assert.match(script, /chart-line/u);
-  assert.match(script, /candidateMatchesQuery/u);
-  assert.match(script, /当前筛选条件下没有匹配的 Article/u);
-  assert.match(script, /candidate-menu asset-menu/u);
-  assert.match(script, /candidateId\(candidate\)/u);
-  assert.match(script, /data-source-url/u);
-  assert.match(script, /articleId\(item\.sourceUrl\) === sourceUrl/u);
-  assert.match(script, /candidate\.status !== "ignored" && candidate\.status !== "saved"/u);
-  assert.doesNotMatch(script, /请先打开此候选的 X 原文/u);
-  assert.match(script, /复制 Markdown/u);
-  assert.doesNotMatch(script, /保存并复制 Markdown/u);
-  assert.doesNotMatch(script, /save-capture-to-library/u);
-  assert.match(script, /asset\.authorName/u);
-  assert.match(script, /asset-card-placeholder/u);
-  assert.doesNotMatch(script, /markdownSummary|markdownLines|asset\.previewExcerpt/u);
-  assert.doesNotMatch(script, /function renderAssetMarkdown|asset-markdown-reader/u);
-  assert.doesNotMatch(script, /expandedAssetId|asset-toggle-markdown|展开|收起/u);
-  assert.match(script, /class="article-card-media asset-card-media" href="\$\{escapeHtml\(asset\.sourceUrl\)\}" target="_blank" rel="noreferrer" aria-label="在 X 中打开 \$\{escapeHtml\(asset\.title\)\} 原文"/u);
-  assert.doesNotMatch(script, /asset-view-cover|assetImageDialog|asset-image-(?:backdrop|close)/u);
-  assert.match(script, /发布于 \$\{escapeHtml\(formatDate\(asset\.publishedAt\)\)\}/u);
-  assert.match(script, /收录于 \$\{escapeHtml\(formatDate\(asset\.createdAt\)\)\}/u);
-  assert.doesNotMatch(script, /Markdown 摘要/u);
-  assert.doesNotMatch(script, /查看全文/u);
-  assert.match(script, /assetMenuPlacement/u);
-  assert.match(script, /setSelectionRange\(cursor, cursor\)/u);
-  assert.match(script, /compositionstart/u);
-  assert.match(script, /compositionend/u);
-  assert.match(script, /event\.isComposing/u);
-  assert.doesNotMatch(script, /data-action="asset-open"/u);
-  assert.doesNotMatch(script, /data-action="asset-edit"/u);
-  assert.doesNotMatch(script, /data-asset-note/u);
-  assert.doesNotMatch(script, /asset-search-help/u);
-  assert.match(script, /data-action="asset-add-tag"/u);
-  assert.match(script, /data-action="asset-remove-tag"/u);
-  assert.match(script, /data-action="asset-tag-editor"/u);
-  assert.match(script, /publishedLinks/u);
-  assert.match(script, /platformForUrl/u);
-  assert.match(script, /xiaohongshu|reddit|wechat|bilibili/u);
-  assert.match(script, /data-action="asset-publish-editor"/u);
-  assert.match(script, /asset-publish-dialog/u);
-  assert.match(script, /data-action="asset-publish-remove"/u);
-  assert.match(script, /data-action="asset-publish-cancel"/u);
-  assert.match(script, /assetPublishError/u);
+  assert.doesNotMatch(content, /toggle-candidate-overlay|capture-current-for-sidepanel|capture-completed|toggle-import-panel|x-to-md-import-panel/u);
+});
+
+test("Side Panel 只有待读、素材库和作者三个一级页面", () => {
+  const html = source("../sidepanel.html");
+  const script = source("../sidepanel.js");
+  const views = [...html.matchAll(/data-view="([^"]+)"/gu)].map((match) => match[1]);
+  assert.deepEqual(views, ["readingList", "assets", "authors"]);
   assert.match(script, /data-action="asset-preview"/u);
-  assert.match(script, /chrome\.storage\.session\.set/u);
-  assert.match(script, /library-markdown-preview/u);
-  assert.match(script, /chrome\.tabs\.create/u);
-  assert.doesNotMatch(script, /asset-markdown-preview/u);
-  assert.match(script, /asset\.usageStatus === "used" \? "已使用" : "未使用"/u);
-  assert.match(script, /const assetCounts =/u);
-  assert.match(script, /assetCounts\[filter\]/u);
-  assert.match(script, /aria-label="\$\{label\} \$\{assetCounts\[filter\]\} 篇"/u);
-  assert.match(css, /\.asset-menu\.is-up/u);
-  assert.match(css, /\.asset-tags-row/u);
-  assert.doesNotMatch(css, /asset-excerpt|asset-summary-actions|asset-markdown-toggle/u);
-  assert.match(css, /\.asset-tag-editor/u);
-  assert.match(css, /\.asset-platform-link\.is-xiaohongshu/u);
-  assert.match(script, /asset-usage-status/u);
-  assert.match(script, /标记为已使用/u);
-  assert.match(script, /已发布至/u);
-  assert.match(script, /asset-preview-action/u);
-  assert.doesNotMatch(script, /asset-publish-button|Markdown 摘要|查看全文/u);
-  assert.match(script, /article-post asset-post/u);
-  assert.match(script, /article-card asset-card/u);
-  assert.match(script, /article-card-media asset-card-media/u);
-  assert.match(css, /\.asset-card-media img \{[^}]*object-fit: contain;/u);
-  assert.match(css, /\.asset-author \{ flex-wrap: nowrap; \}/u);
-  assert.match(css, /\.asset-author \.article-handle a \{ color: inherit; text-decoration: none; \}/u);
-  assert.match(css, /\.asset-footer \{ display: flex; align-items: center; gap: 8px; min-height: 36px; margin-top: 8px; \}/u);
-  assert.match(css, /\.asset-preview-action/u);
-  assert.match(css, /\.asset-usage-status\.is-used/u);
-  assert.match(css, /\.asset-menu-editor/u);
-  assert.match(css, /\.asset-published-label/u);
-  assert.match(css, /\.asset-publish-dialog/u);
-  assert.match(css, /\.asset-publish-error/u);
-  assert.doesNotMatch(css, /asset-image-(?:backdrop|close)/u);
-  assert.match(css, /\.panel-search/u);
-  assert.doesNotMatch(css, /\.candidate-search/u);
-  assert.doesNotMatch(css, /\.asset-search/u);
-  assert.match(script, /candidate-date-tabs asset-filter-tabs/u);
-  assert.match(css, /\.asset-filter-tabs \{ margin-top: 8px;/u);
-  assert.doesNotMatch(css, /\.filter-tab/u);
-  assert.match(readFileSync(new URL("../sidepanel.css", import.meta.url), "utf8"), /object-fit: contain/u);
-  assert.doesNotMatch(script, /state\.data\.assets\.unshift/u);
-  assert.doesNotMatch(script, /context-save/u);
-  assert.doesNotMatch(script, /context-scan/u);
-  assert.doesNotMatch(script, /refreshContext/u);
-  assert.doesNotMatch(script, /get-current-context/u);
-  assert.doesNotMatch(script, /保存当前提取/u);
-  assert.match(script, /删除素材/u);
-  assert.match(css, /flex: 0 0 48px/u);
-  assert.doesNotMatch(css, /min-height: 53px/u);
-  assert.match(css, /--twitter-color-text-primary: rgb\(15, 20, 25\)/u);
-  assert.match(css, /--twitter-color-text-secondary: rgb\(83, 100, 113\)/u);
-  assert.match(css, /--twitter-color-brand: rgb\(29, 155, 240\)/u);
-  assert.match(css, /--twitter-color-destructive: rgb\(244, 33, 46\)/u);
-  assert.match(css, /--twitter-avatar-size: 40px/u);
-  assert.match(css, /grid-template-columns: 40px minmax\(0, 1fr\)/u);
-  assert.match(css, /gap: 12px; width: 100%; max-width: 600px/u);
-  assert.match(css, /aspect-ratio: 2\.55/u);
-  assert.match(css, /\.article-card strong \{[^}]*font-size: 15px;[^}]*line-height: 20px/u);
-  assert.match(css, /\.article-card-excerpt \{[^}]*font-size: 15px;[^}]*line-height: 20px/u);
-  assert.match(css, /width: 18\.75px; height: 18\.75px/u);
-  assert.match(css, /\.article-inbox-remove:hover, \.article-inbox-remove:focus-visible/u);
-  assert.match(css, /\.follow-button:hover/u);
-  assert.match(css, /\.author-profile-link/u);
-  assert.doesNotMatch(script, /presentation\?\.tokens/u);
-  assert.doesNotMatch(script, /--article-icon-size/u);
-  assert.match(css, /\.candidate-menu/u);
-  assert.match(css, /\.candidate-sort/u);
-  assert.match(css, /\.status \{ position: fixed; bottom: 16px; left: 50%/u);
-  assert.match(css, /\.status:not\(:empty\) \{ padding: 16px 24px; color: #fff; background: var\(--x-blue\)/u);
-  assert.match(script, /if \(message\) setStatus\.clearTimer = window\.setTimeout\(\(\) => setStatus\(\), 3200\)/u);
-  assert.doesNotMatch(script, /kind !== "error"/u);
-  assert.match(css, /border-bottom: 1px solid var\(--x-border\)/u);
+  assert.match(script, /usageStatus/u);
+  assert.match(script, /data-asset-tag-input/u);
+  assert.match(script, /https:\/\/x\.com\/\$\{value\}/u);
+  assert.doesNotMatch(`${html}\n${script}`, /候选集|关注作者|统计|导航设置|发布链接|publishedLinks|materialize/u);
 });
 
-test("Popup 与预览页保留清晰的成功、边界和来源反馈", () => {
-  const popup = readFileSync(new URL("../popup.html", import.meta.url), "utf8");
-  const popupScript = readFileSync(new URL("../popup.js", import.meta.url), "utf8");
-  const preview = readFileSync(new URL("../preview.html", import.meta.url), "utf8");
-  const previewScript = readFileSync(new URL("../preview.js", import.meta.url), "utf8");
-  const background = readFileSync(new URL("../background.js", import.meta.url), "utf8");
-  const sidepanel = readFileSync(new URL("../sidepanel.js", import.meta.url), "utf8");
-
-  assert.match(popup, /Copy the current X content as Markdown\. Nothing is uploaded\./u);
-  assert.match(popup, /Extract and copy/u);
-  assert.match(popup, /Nothing is uploaded/u);
-  assert.match(popup, /class="description"/u);
-  assert.match(popup, /class="popup-card"/u);
-  assert.match(popup, /--x-color-primary/u);
-  assert.match(popup, /--x-radius-panel/u);
-  assert.match(popup, /--x-radius-pill/u);
-  assert.match(popup, /#status:empty/u);
-  assert.match(popupScript, /capture\?\.error/u);
-  assert.match(popupScript, /window\.close\(\)/u);
-  assert.match(popupScript, /Markdown copied\./u);
-  assert.match(preview, /Markdown 预览/u);
-  assert.match(preview, /class="preview-heading"/u);
-  assert.match(previewScript, /View original/u);
-  assert.match(previewScript, /Images are excluded from Markdown/u);
-  assert.match(previewScript, /library-markdown-preview/u);
-  assert.match(previewScript, /renderMarkdown/u);
-  assert.match(preview, /class="preview-icon-button"/u);
-  assert.match(preview, /aria-label="复制 Markdown"/u);
-  assert.match(preview, /aria-label="关闭预览"/u);
-  assert.match(previewScript, /function formatPreviewDate/u);
-  assert.match(previewScript, /getFullYear\(\)/u);
-  assert.match(previewScript, /function authorProfileUrl/u);
-  assert.match(previewScript, /https:\/\/x\.com\/\$\{normalizedHandle\}/u);
-  assert.match(previewScript, /renderMarkdown\(value\.markdown, value\.title\)/u);
-  assert.doesNotMatch(previewScript, /copyButton\.textContent/u);
-  assert.match(previewScript, /This preview has expired/u);
-  assert.match(previewScript, /data-code-copy/u);
-  assert.match(previewScript, /Code copied/u);
-  assert.doesNotMatch(popupScript, /open-native-preview/u);
-  const contentScript = readFileSync(new URL("../content.js", import.meta.url), "utf8");
-  assert.match(contentScript, /Copy the current X content as Markdown\. Nothing is uploaded\./u);
-  assert.doesNotMatch(contentScript, /root\.querySelectorAll\('button, \[role="button"\]\)/u);
-  assert.doesNotMatch(contentScript, /message\?\.type !== "open-native-preview"/u);
-  assert.match(contentScript, /toggle-import-panel/u);
-  assert.doesNotMatch(contentScript, /data-extract-current|data-open-article/u);
-  assert.match(contentScript, /function openArticleForExtraction\(candidate\)/u);
-  assert.match(contentScript, /location\.assign\(sourceUrl\)/u);
-  assert.match(contentScript, /function postCandidateFromRoot/u);
-  assert.match(contentScript, /function contentCandidateFromPage/u);
-  assert.match(contentScript, /previewCurrentPageMarkdown\(candidate, root\)/u);
-  assert.match(contentScript, /actionRow\("预览\/复制 Markdown"/u);
-  assert.match(contentScript, /actionRow\("复制文本"/u);
-  assert.match(contentScript, /actionRow\(isInLibrary \? "从素材库移除" : "加入素材库"/u);
-  assert.match(contentScript, /actionRow\(isInInbox \? "从候选集移除" : "加入候选集"/u);
-  assert.doesNotMatch(contentScript, /打开原文后提取/u);
-  assert.match(contentScript, /setMenuRowIcon/u);
-  assert.match(contentScript, /open-markdown-preview/u);
-  assert.match(background, /message\.capture\?\.content/u);
-  assert.match(background, /preview\.html\?mode=library/u);
-  assert.match(contentScript, /hasExtensionStorage/u);
-  assert.match(contentScript, /open-side-panel/u);
-  assert.match(contentScript, /已加入，请查看/u);
-  assert.match(contentScript, /已移除，请查看/u);
-  assert.match(contentScript, /function followPersonIcon/u);
-  assert.match(contentScript, /function unfollowPersonIcon/u);
-  assert.match(contentScript, /actionRow\(isFollowing \? "取消关注" : "关注"/u);
-  assert.match(background, /chrome\.sidePanel\.open\(\{ windowId \}\)/u);
-  assert.match(background, /x-to-md-sidepanel-target/u);
-  assert.match(sidepanel, /x-to-md-sidepanel-target/u);
-  assert.match(contentScript, /x-to-md-menu-icon/u);
-  assert.match(contentScript, /width: 24px !important/u);
-  assert.match(contentScript, /background: rgba\(83, 100, 113, 0\.1\) !important/u);
-  assert.doesNotMatch(contentScript, /Save to library|Open Side Panel/u);
-  assert.match(contentScript, /save-capture-to-library/u);
-  assert.match(contentScript, /remove-capture-from-library/u);
-  assert.match(contentScript, /从素材库移除/u);
-  assert.match(contentScript, /toggle-candidate-overlay/u);
-  assert.match(contentScript, /x-to-md-ready/u);
-  assert.match(contentScript, /toggleCandidateOverlay/u);
-  assert.match(contentScript, /restoreCandidateOverlay/u);
-  assert.match(contentScript, /articleCandidateFromListRoot\(root\)/u);
-  assert.match(contentScript, /x-to-md-candidate-overlay/u);
-  assert.match(contentScript, /x-to-md-import-panel/u);
-  assert.doesNotMatch(contentScript, /x-to-md-bookmark-candidate-toolbar/u);
-  assert.match(contentScript, /x-to-md-follow-subscription-toolbar/u);
-  assert.match(contentScript, />Follow<\/button>/u);
-  assert.match(contentScript, /加入候选集/u);
-  assert.match(contentScript, /从候选集移除/u);
-  assert.match(contentScript, /articleCandidateFromPage/u);
-  assert.match(contentScript, /articleCandidateFromListRoot/u);
-  assert.match(contentScript, /articleCardRootFromTarget/u);
-  assert.match(contentScript, /article-cover-image/u);
-  assert.match(contentScript, /\(\?:status\|\(\?:i\\\/\)\?article\)/u);
-  assert.match(contentScript, /isArticleSourcePage/u);
-  assert.match(contentScript, /articleCandidateFromPage\(\)/u);
-  assert.doesNotMatch(contentScript, /articleCandidateFromBookmarkButton/u);
-  assert.match(contentScript, /canonicalArticleSourceUrl/u);
-  assert.match(contentScript, /function articleCandidateRootFromPage\(\)/u);
-  assert.match(contentScript, /article\[data-testid="tweet"\]/u);
-  assert.match(contentScript, /function articleCandidateAuthorFromPage\(root\)/u);
-  assert.match(contentScript, /authorAvatarUrl: pageAuthor\.authorAvatarUrl \|\| author\?\.authorAvatarUrl \|\| ""/u);
-  assert.match(contentScript, /const candidate = isArticleSourcePage\(\) \? articleCandidateFromPage\(\) : null;/u);
-  assert.match(contentScript, /coverImageUrl: candidate\?\.coverImageUrl \|\| ""/u);
-  assert.match(contentScript, /previewExcerpt: candidate\?\.previewExcerpt \|\| ""/u);
-  assert.match(contentScript, /button\[data-testid="bookmark"\]/u);
-  assert.match(contentScript, /button\[data-testid="removeBookmark"\]/u);
-  assert.match(contentScript, /cover\?\.querySelector\("img"\)/u);
-  assert.match(contentScript, /isArticlesIndexPage/u);
-  assert.doesNotMatch(contentScript, /bookmarkButton\.getBoundingClientRect|rect\.left - toolbarRect\.width - gap|rect\.right \+ gap/u);
-  assert.match(contentScript, /Untitled Article/u);
-  assert.doesNotMatch(contentScript, /data-toggle-inbox-candidate|data-toggle-library-asset/u);
-  assert.match(contentScript, /candidateTrayIcon/u);
-  assert.match(contentScript, /libraryBookmarkIcon/u);
-  assert.match(contentScript, /function copyTextIcon/u);
-  assert.match(contentScript, /function markdownPreviewIcon/u);
-  assert.match(contentScript, /actionRow\("预览\/复制 Markdown", markdownPreviewIcon\(\), "extract"\)/u);
-  assert.match(contentScript, /isActiveInboxCandidate/u);
-  assert.match(contentScript, /matchesInboxCandidate/u);
-  assert.match(contentScript, /addInboxCandidate/u);
-  assert.match(contentScript, /removeInboxCandidate/u);
-  assert.match(contentScript, /articlePreviewMetadata/u);
-  assert.match(contentScript, /previewExcerpt/u);
-  assert.match(contentScript, /engagementSnapshot/u);
-  assert.match(contentScript, /authorVerified/u);
-  assert.match(contentScript, /previewCapturedAt/u);
-  assert.match(contentScript, /utilityIconSnapshot/u);
-  assert.match(contentScript, /\["ignored", "saved"\]\.includes/u);
-  assert.match(contentScript, /status: "new", addedAt/u);
-  assert.match(contentScript, /candidate\.status = "ignored"/u);
-  assert.doesNotMatch(contentScript, /aria-pressed="\$\{isInInbox\}"|button\.is-in-inbox:hover/u);
-  assert.doesNotMatch(contentScript, /data-add-selection-subscription/u);
-  assert.match(contentScript, /data-toggle-follow-subscription/u);
-  assert.match(contentScript, /background: #1D9BF0 !important/u);
-  assert.match(contentScript, /color: #FFFFFF !important/u);
-  assert.match(contentScript, /data-testid="HoverCard"/u);
-  assert.doesNotMatch(contentScript, /positionBookmarkCandidateToolbar/u);
-  assert.doesNotMatch(contentScript, /width: 18\.75px !important/u);
-  assert.doesNotMatch(contentScript, /selectionchange/u);
-  assert.doesNotMatch(contentScript, /observe\(document\.(?:body|documentElement)/u);
-  assert.doesNotMatch(contentScript, /articleMoreMenuObserver\.observe|visibleNativeMenu|caret\.click\(\)/u);
-  assert.match(contentScript, /profileHandleFromHref/u);
-  assert.match(contentScript, /normalizedHandleText/u);
-  assert.match(contentScript, /\\u200B-\\u200F\\u2060\\uFEFF/u);
-  assert.doesNotMatch(contentScript, /bookmarkCandidateState|scheduleRemoveBookmarkCandidateToolbar/u);
-  assert.match(contentScript, /closest\('a\[href\]'\)/u);
-  assert.match(contentScript, /articleLinks\.length === 1 && coverCount <= 1/u);
-  assert.match(contentScript, /root\.querySelectorAll\?\.\('\[data-testid="article-cover-image"\]'\)/u);
-  assert.match(contentScript, /followButtonFromTarget/u);
-  assert.match(contentScript, /authorFromFollowButton/u);
-  assert.match(contentScript, /positionFollowSubscriptionToolbar/u);
-  assert.match(contentScript, /Follow\|Following\|Unfollow/u);
-  assert.match(contentScript, /button\.matches\('\[data-testid\$="-follow"\]'/u);
-  assert.match(contentScript, /button\.matches\('\[data-testid\$="-unfollow"\]'/u);
-  assert.match(contentScript, /removeAuthorSubscription/u);
-  assert.match(contentScript, /data-toggle-follow-subscription/u);
-  assert.match(contentScript, />Following</u);
-  assert.match(contentScript, />unfollow</u);
-  assert.match(contentScript, /rgb\(244, 33, 46\)/u);
-  assert.match(contentScript, /location\.pathname/u);
-  assert.match(contentScript, /CONTENT_INBOX_STORAGE_KEY/u);
-  assert.doesNotMatch(contentScript, /document\.addEventListener\("mouseup"/u);
-  assert.doesNotMatch(contentScript, /document\.addEventListener\("pointerup"/u);
-  assert.match(contentScript, /document\.addEventListener\("pointerover"/u);
-  assert.match(contentScript, /document\.addEventListener\("focusin"/u);
-  assert.doesNotMatch(contentScript, /authorLink\.closest\('\[data-testid="User-Name"\]'\)/u);
-  assert.match(contentScript, /--twitter-color-background/u);
-  assert.match(contentScript, /width: 300px !important; padding: 20px !important/u);
-  assert.match(contentScript, /height: 46px !important; min-height: 46px !important/u);
-  assert.match(contentScript, /align-items: center !important; justify-content: center !important/u);
-  assert.match(contentScript, /text-align: center !important; white-space: nowrap !important/u);
-  assert.match(popup, /align-items: center; justify-content: center/u);
-  assert.doesNotMatch(contentScript, /已复制 Markdown，并进入 X 原生预览/u);
+test("Preview 区分当前 Article 与已保存素材", () => {
+  const html = source("../preview.html");
+  const script = source("../preview.js");
+  assert.match(html, /id="save"[^>]*hidden/u);
+  assert.match(script, /saveButton\.hidden = !value\.canSave/u);
+  assert.match(script, /type: "save-article-asset"/u);
+  assert.match(script, /contentType: "article"/u);
+  assert.match(script, /navigator\.clipboard\.writeText\(preview\.markdown\)/u);
+  assert.match(script, /打开 X 原文/u);
+  assert.doesNotMatch(script, /preview-job|materialize|setInterval|tabs\.create/u);
 });
 
-test("当前页导航图标使用实心 X 蓝色", () => {
-  const html = readFileSync(new URL("../sidepanel.html", import.meta.url), "utf8");
-  const script = readFileSync(new URL("../sidepanel.js", import.meta.url), "utf8");
-  const css = readFileSync(new URL("../sidepanel.css", import.meta.url), "utf8");
-
-  assert.match(script, /const isCurrentPage = tab\.dataset\.view === state\.page/u);
-  assert.match(script, /tab\.toggleAttribute\("aria-current", isCurrentPage\)/u);
-  assert.match(css, /\.tab\.is-active \{[^}]*color: var\(--x-blue\)/u);
-  assert.match(css, /\.tab\.is-active svg \{[^}]*fill: currentColor[^}]*stroke: none/u);
-  assert.match(html, /data-view="stats"[\s\S]*?<rect x="3\.5"/u);
+test("项目文档固化 X 同源设计与禁止自动 Chrome 验收", () => {
+  const design = source("../docs/development/product-design.md");
+  const agents = source("../AGENTS.md");
+  assert.match(design, /TwitterChirp/u);
+  assert.match(design, /44px/u);
+  assert.match(design, /24×24/u);
+  assert.match(design, /禁止自动启动 Chrome/u);
+  assert.match(design, /Chrome DevTools/u);
+  assert.match(agents, /docs\/development\/product-design\.md/u);
 });

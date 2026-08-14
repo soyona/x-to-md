@@ -1,10 +1,23 @@
 (function initializeXToMdContentScript() {
+const previousArticleActionsEntrySlots = new Set([
+  ...document.querySelectorAll("[data-x-to-md-article-actions-slot]"),
+  ...[...document.querySelectorAll("[data-x-to-md-article-actions-entry]")]
+    .map((entry) => entry.parentElement)
+    .filter(Boolean),
+]);
+const removablePreviousArticleActionsEntrySlots = new Set(
+  [...previousArticleActionsEntrySlots].filter(articleActionsSlotStillOwned),
+);
+previousArticleActionsEntrySlots.forEach((slot) => {
+  if (!removablePreviousArticleActionsEntrySlots.has(slot)) neutralizeArticleActionsSlot(slot);
+});
 document.dispatchEvent(new CustomEvent("x-to-md:dispose-content-script"));
 try {
   globalThis.__xToMdContentScript?.dispose?.();
 } catch {
   // An extension reload can invalidate the previous instance's chrome.runtime.
 }
+removablePreviousArticleActionsEntrySlots.forEach((slot) => slot.remove());
 
 function textOf(element) {
   return (element?.innerText || element?.textContent || "")
@@ -60,7 +73,7 @@ function paragraphBlock(element) {
 function isAuxiliaryArticleBlock(element, sourceHandle = "") {
   const text = textOf(element);
   if (!text) return false;
-  if (/^click to follow\s+/iu.test(text)) return true;
+  if (/^click to (?:follow|subscribe)\s+/iu.test(text)) return true;
   if (!sourceHandle) return false;
   const escapedHandle = sourceHandle.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
   return new RegExp(`^.+\\n@${escapedHandle}\\nFollow(?:\\n|$)`, "u").test(text);
@@ -97,18 +110,20 @@ function originalMediaUrl(value) {
   }
 }
 
-let importPanelState = null;
-let candidateOverlayState = null;
-let followSubscriptionState = null;
-let followSubscriptionHideTimer = null;
 let articleMoreMenuState = null;
 let articleMoreMenuPending = null;
 let articleMoreTriggerState = null;
 let articleActionsEntryObserver = null;
-let articleActionsEntryStartTimer = null;
+let articleActionsEntryHostObserver = null;
+let articleActionsEntryWaitObserver = null;
+let articleActionsEntryObservedRoot = null;
+let articleActionsEntryFlushFrame = null;
+let articleActionsEntryVisibleScanPending = false;
+const pendingArticleActionsRoots = new Set();
+const pendingArticleActionsMoreButtons = new Set();
 const runtimeMessageListeners = [];
 const CONTENT_INBOX_STORAGE_KEY = "x-to-md-content-inbox";
-const CONTENT_SCRIPT_REVISION = "article-actions-entry-v25";
+const CONTENT_SCRIPT_REVISION = "article-first-v1";
 const contentScriptAbortController = new AbortController();
 const contentScriptEventOptions = { signal: contentScriptAbortController.signal };
 const articleMenuDiagnostics = { revision: CONTENT_SCRIPT_REVISION, stage: "initialized", history: [] };
@@ -152,18 +167,26 @@ function disposeContentScript() {
   });
   articleActionsEntryObserver?.disconnect();
   articleActionsEntryObserver = null;
-  if (articleActionsEntryStartTimer) window.clearTimeout(articleActionsEntryStartTimer);
-  articleActionsEntryStartTimer = null;
+  articleActionsEntryHostObserver?.disconnect();
+  articleActionsEntryHostObserver = null;
+  articleActionsEntryWaitObserver?.disconnect();
+  articleActionsEntryWaitObserver = null;
+  articleActionsEntryObservedRoot = null;
+  if (articleActionsEntryFlushFrame !== null) window.cancelAnimationFrame(articleActionsEntryFlushFrame);
+  articleActionsEntryFlushFrame = null;
+  articleActionsEntryVisibleScanPending = false;
+  pendingArticleActionsRoots.clear();
+  pendingArticleActionsMoreButtons.clear();
   if (document.documentElement?.getAttribute("data-x-to-md-content-script-revision") === CONTENT_SCRIPT_REVISION) {
     document.documentElement.removeAttribute("data-x-to-md-content-script-revision");
     document.documentElement.removeAttribute("data-x-to-md-article-actions-stage");
   }
-  removeFollowSubscriptionToolbar();
   removeArticleMoreMenu();
-  document.querySelectorAll("[data-x-to-md-article-actions-entry]").forEach((entry) => entry.remove());
+  document.querySelectorAll("[data-x-to-md-article-actions-slot]").forEach(removeOwnedArticleActionsSlotOrNeutralize);
+  document.querySelectorAll("[data-x-to-md-article-actions-entry]").forEach((entry) => {
+    entry.remove();
+  });
   document.querySelector("#x-to-md-article-actions-entry-style")?.remove();
-  removeImportPanel();
-  restoreCandidateOverlay();
 }
 
 function addRuntimeMessageListener(listener) {
@@ -184,20 +207,38 @@ function normalizedHandleText(value) {
   return String(value || "").replace(/[\s\u200B-\u200F\u2060\uFEFF]/gu, "").toLowerCase();
 }
 
+function looksLikeDisplayName(value) {
+  const text = String(value || "").trim();
+  if (!text) return false;
+  const normalized = normalizedHandleText(text);
+  if (!normalized) return false;
+  if (/^(?:follow|following|unfollow|subscribe|openinapp)$/iu.test(normalized)) return false;
+  if (/^\d[\d.,]*[kmb]?$/iu.test(normalized)) return false;
+  if (/^[·•]+$/u.test(normalized)) return false;
+  return /[\p{L}\p{N}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(text);
+}
+
 function authorPresentationFromElement(element, handle = "", fallbackDisplayName = "", explicitRoot = null) {
   const userCell = element?.closest?.('[data-testid="UserCell"]');
   const root = explicitRoot || userCell || element?.closest?.("article") || document;
-  const avatar = root.querySelector('[data-testid^="UserAvatar-Container-"] img, [data-testid="Tweet-User-Avatar"] img, [data-testid="UserAvatar-Container"] img');
+  const profileLink = [...root.querySelectorAll('a[href]')]
+    .find((link) => profileHandleFromHref(link.getAttribute("href")).toLowerCase() === handle.toLowerCase()) || null;
+  const avatar = profileLink?.querySelector("img")
+    || root.querySelector('[data-testid^="UserAvatar-Container-"] img, [data-testid="Tweet-User-Avatar"] img, [data-testid="UserAvatar-Container"] img, img[src*="/profile_images/"]');
   const linkedIdentity = [...root.querySelectorAll('a[href]')]
     .filter((link) => profileHandleFromHref(link.getAttribute("href")).toLowerCase() === handle.toLowerCase())
     .map((link) => textOf(link))
-    .find((text) => text && normalizedHandleText(text) !== normalizedHandleText(handle));
+    .find((text) => looksLikeDisplayName(text) && normalizedHandleText(text) !== normalizedHandleText(handle));
   const identityLines = [...root.querySelectorAll('[data-testid="UserName"], [data-testid="User-Name"]')]
     .map((node) => textOf(node).split("\n").map((text) => text.trim()).filter(Boolean))
     .find((lines) => lines.some((text) => normalizedHandleText(text) === normalizedHandleText(handle))) || [];
   const namedIdentity = identityLines
-    .find((text) => normalizedHandleText(text) !== normalizedHandleText(handle));
-  const identity = namedIdentity || linkedIdentity;
+    .find((text) => looksLikeDisplayName(text) && normalizedHandleText(text) !== normalizedHandleText(handle));
+  const profileIdentity = profileLink
+    ? textOf(profileLink).split("\n").map((text) => text.trim()).filter(Boolean)
+      .find((text) => looksLikeDisplayName(text) && normalizedHandleText(text) !== normalizedHandleText(handle))
+    : "";
+  const identity = namedIdentity || profileIdentity || linkedIdentity;
   const displayName = identity || fallbackDisplayName;
   const normalizedIdentity = new Set([handle, displayName, "Follow", "Following"]
     .map(normalizedHandleText)
@@ -222,54 +263,6 @@ function authorPresentationFromElement(element, handle = "", fallbackDisplayName
   };
 }
 
-function followButtonFromTarget(target) {
-  const button = target?.closest?.("button");
-  if (!button || button.closest("#x-to-md-follow-subscription-toolbar")) return null;
-  const label = button.getAttribute("aria-label") || "";
-  const visibleText = textOf(button);
-  const labeledFollowState = /^(?:Follow|Following|Unfollow)\s+@[a-z0-9_]{1,15}$/iu.test(label);
-  const nativeFollow = (
-    button.matches('[data-testid$="-follow"]') && /^Follow$/iu.test(visibleText)
-  );
-  const nativeFollowing = (
-    button.matches('[data-testid$="-unfollow"]') && /^(?:Following|Unfollow)$/iu.test(visibleText)
-  );
-  return labeledFollowState || nativeFollow || nativeFollowing ? button : null;
-}
-
-function followHandleFromButton(button) {
-  const labelHandle = (button.getAttribute("aria-label") || "").match(/^(?:Follow|Following|Unfollow)\s+(@[a-z0-9_]{1,15})$/iu)?.[1];
-  if (labelHandle) return labelHandle;
-  const semanticRoot = button.closest('[data-testid="UserCell"], [data-testid="HoverCard"], [data-testid="hoverCardParent"], article');
-  const profileLink = [...semanticRoot?.querySelectorAll?.('a[href]') || []]
-    .find((link) => profileHandleFromHref(link.getAttribute("href")));
-  return profileHandleFromHref(profileLink?.getAttribute("href"));
-}
-
-function authorRootFromFollowButton(button, handle) {
-  const semanticRoot = button.closest('[data-testid="UserCell"], [data-testid="HoverCard"], [data-testid="hoverCardParent"], article');
-  if (semanticRoot) return semanticRoot;
-  let root = button.parentElement;
-  for (let depth = 0; root && root !== document.body && depth < 12; depth += 1, root = root.parentElement) {
-    const matchingProfile = [...root.querySelectorAll?.('a[href]') || []]
-      .some((link) => profileHandleFromHref(link.getAttribute("href")).toLowerCase() === handle.toLowerCase());
-    const avatar = root.querySelector?.('[data-testid^="UserAvatar-Container-"] img, [data-testid="Tweet-User-Avatar"] img, [data-testid="UserAvatar-Container"] img');
-    if (matchingProfile && avatar) return root;
-  }
-  const currentHandle = profileHandleFromHref(location.pathname);
-  if (currentHandle.toLowerCase() === handle.toLowerCase()) return button.closest('[data-testid="primaryColumn"]') || document;
-  return null;
-}
-
-function authorFromFollowButton(button, knownHandle = "") {
-  const handle = knownHandle || followHandleFromButton(button);
-  if (!handle) return null;
-  const root = authorRootFromFollowButton(button, handle);
-  if (!root) return null;
-  const presentation = authorPresentationFromElement(button, handle, handle, root);
-  return { handle, profileUrl: `https://x.com/${handle.slice(1)}`, ...presentation };
-}
-
 function isArticleSourcePage() {
   return /\/(?:status|(?:i\/)?article)\/\d+/u.test(location.pathname);
 }
@@ -287,6 +280,26 @@ function canonicalArticleSourceUrl(value = location.href) {
 
 function isArticlesIndexPage() {
   return /^\/[^/]+\/articles\/?$/u.test(location.pathname);
+}
+
+function statusSourceId() {
+  return /^\/[^/]+\/status\/(\d+)(?:\/|$)/u.exec(location.pathname)?.[1] || "";
+}
+
+function statusSourceCardFromPage() {
+  const statusId = statusSourceId();
+  if (!statusId) return null;
+  const statusPath = new RegExp(`^/[^/]+/status/${statusId}(?:$|[?#/])`, "u");
+  return [...document.querySelectorAll('article[data-testid="tweet"]')]
+    .find((card) => [...card.querySelectorAll('a[href]')]
+      .some((link) => statusPath.test(link.getAttribute("href") || ""))) || null;
+}
+
+function isValidArticleActionsOwner(root) {
+  if (root?.matches?.('article[data-testid="tweet"]')) {
+    return !statusSourceId() || root === statusSourceCardFromPage();
+  }
+  return isArticleSourcePage() && root === articleActionsEntryRootFromPage();
 }
 
 function articleCandidateId(sourceUrl) {
@@ -336,6 +349,8 @@ function articlePreviewMetadata(root, cardText, title) {
 }
 
 function articleCandidateRootFromPage() {
+  const root = findRoot();
+  if (root) return root;
   const statusId = /\/status\/(\d+)/u.exec(location.pathname)?.[1];
   if (statusId) {
     const statusLink = new RegExp(`/status/${statusId}(?:$|[?#/])`, "u");
@@ -344,7 +359,19 @@ function articleCandidateRootFromPage() {
         .some((link) => statusLink.test(link.getAttribute("href") || "")));
     if (tweetRoot) return tweetRoot;
   }
-  return document.querySelector('[data-testid="twitterArticleReadView"], [data-testid="article"], [data-testid="twitterArticleRichTextView"], [data-testid="longformRichTextComponent"], [data-testid="articleBody"]') || findRoot();
+  return document.querySelector('[data-testid="twitterArticleReadView"], [data-testid="article"], [data-testid="twitterArticleRichTextView"], [data-testid="longformRichTextComponent"], [data-testid="articleBody"]') || null;
+}
+
+function articleActionsEntryRootFromPage() {
+  const captureRoot = articleCandidateRootFromPage();
+  if (articleMoreButtonFromRoot(captureRoot)) return captureRoot;
+  const main = document.querySelector("main");
+  const moreButton = articleMoreButtonFromRoot(main);
+  if (!moreButton) return captureRoot;
+  return moreButton.closest('[data-testid="twitterArticleReadView"], [data-testid="article"], [data-testid="articleBody"], [data-testid="longformRichTextComponent"], article[data-testid="tweet"], [data-testid="cellInnerDiv"], [data-testid="primaryColumn"], main')
+    || moreButton.closest("article")
+    || moreButton.parentElement
+    || captureRoot;
 }
 
 function articleCandidateAuthorFromPage(root) {
@@ -365,6 +392,7 @@ function articleCandidateFromPage(author) {
   const cover = root.querySelector('[data-testid="article-cover-image"] img') || [...root.querySelectorAll("img")].find(isMediaImage);
   return {
     id: articleCandidateId(sourceUrl),
+    contentType: "article",
     sourceUrl,
     title,
     authorHandle,
@@ -372,7 +400,6 @@ function articleCandidateFromPage(author) {
     authorAvatarUrl: pageAuthor.authorAvatarUrl || author?.authorAvatarUrl || "",
     coverImageUrl: cover ? originalMediaUrl(cover.currentSrc || cover.src) : "",
     publishedAt: time?.getAttribute("datetime") || null,
-    status: "new",
     ...articlePreviewMetadata(root, root.querySelector('[data-testid="article-cover-image"]')?.nextElementSibling, title),
   };
 }
@@ -402,6 +429,7 @@ function articleCandidateFromListRoot(root) {
   const titleNode = textNodes[0] || root.querySelector('[data-testid="twitter-article-title"], [data-testid="articleTitle"], [data-testid="longformTitle"]');
   const lines = textOf(root).split("\n").map((line) => line.trim()).filter(Boolean);
   const articleMarker = lines.findIndex((line) => /^article$/iu.test(line));
+  if (!cover && articleMarker < 0 && !isArticlesIndexPage()) return null;
   const title = textOf(titleNode) || lines[articleMarker + 1] || "Untitled Article";
   const authorLink = [...root.querySelectorAll('a[href^="/"]')].find((candidate) => profileHandleFromHref(candidate.getAttribute("href")));
   const handle = profileHandleFromHref(authorLink?.getAttribute("href"));
@@ -409,6 +437,7 @@ function articleCandidateFromListRoot(root) {
   const coverImage = cover?.querySelector("img") || [...root.querySelectorAll("img")].find((image) => image !== authorAvatar && isMediaImage(image));
   return {
     id: `article_${sourceUrl.split("/").pop()}`,
+    contentType: "article",
     sourceUrl,
     title,
     authorHandle: handle,
@@ -416,7 +445,6 @@ function articleCandidateFromListRoot(root) {
     authorAvatarUrl: authorAvatar?.currentSrc || authorAvatar?.src || "",
     coverImageUrl: coverImage ? originalMediaUrl(coverImage.currentSrc || coverImage.src) : "",
     publishedAt: root.querySelector("time")?.getAttribute("datetime") || null,
-    status: "new",
     ...articlePreviewMetadata(root, cardText, title),
   };
 }
@@ -436,6 +464,7 @@ function postCandidateFromRoot(root, author = null) {
   const title = textOf(tweetText) || "Untitled Post";
   return {
     id: `post_${sourceUrl.split("/").pop()}`,
+    contentType: "post",
     sourceUrl,
     title,
     authorHandle: handle,
@@ -443,7 +472,6 @@ function postCandidateFromRoot(root, author = null) {
     authorAvatarUrl: presentation.authorAvatarUrl || authorAvatar?.currentSrc || authorAvatar?.src || "",
     coverImageUrl: media ? originalMediaUrl(media.currentSrc || media.src) : "",
     publishedAt: root.querySelector("time")?.getAttribute("datetime") || null,
-    status: "new",
     ...articlePreviewMetadata(root, tweetText, title),
   };
 }
@@ -459,69 +487,8 @@ function normalizedSourceUrl(value) {
   return canonicalArticleSourceUrl(value);
 }
 
-function restoreCandidateOverlay() {
-  if (!candidateOverlayState) return;
-  candidateOverlayState.hiddenRoots.forEach(({ element, style }) => {
-    if (style === null) element.removeAttribute("style");
-    else element.setAttribute("style", style);
-  });
-  candidateOverlayState.panel.remove();
-  candidateOverlayState.style.remove();
-  candidateOverlayState = null;
-}
-
-async function toggleCandidateOverlay() {
-  if (candidateOverlayState) {
-    restoreCandidateOverlay();
-    return { ok: true, open: false };
-  }
-  const stored = await chrome.storage.local.get(CONTENT_INBOX_STORAGE_KEY);
-  const candidateUrls = new Set((stored[CONTENT_INBOX_STORAGE_KEY]?.candidates || [])
-    .filter((candidate) => !["ignored", "saved"].includes(candidate.status))
-    .map((candidate) => normalizedSourceUrl(candidate.sourceUrl)));
-  const articleRoots = [...document.querySelectorAll('[data-testid="cellInnerDiv"]')]
-    .map((root) => ({ root, candidate: articleCandidateFromListRoot(root) }))
-    .filter(({ candidate }) => candidate);
-  const visibleCandidates = articleRoots.filter(({ candidate }) => candidateUrls.has(normalizedSourceUrl(candidate.sourceUrl)));
-  const hiddenRoots = articleRoots
-    .filter(({ candidate }) => !candidateUrls.has(normalizedSourceUrl(candidate.sourceUrl)))
-    .map(({ root }) => ({ element: root, style: root.getAttribute("style") }));
-  hiddenRoots.forEach(({ element }) => element.style.setProperty("display", "none", "important"));
-
-  const style = document.createElement("style");
-  style.id = "x-to-md-candidate-overlay-style";
-  style.textContent = `
-    #x-to-md-candidate-overlay { position: fixed !important; z-index: 2147483647 !important; top: 12px !important; right: 12px !important; display: flex !important; align-items: center !important; gap: 10px !important; min-height: 40px !important; padding: 0 10px 0 14px !important; border-radius: 9999px !important; background: var(--twitter-color-background, #fff) !important; color: var(--twitter-color-text, rgb(15, 20, 25)) !important; box-shadow: 0 4px 12px rgba(15, 20, 25, .16) !important; font: 700 14px/20px TwitterChirp, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important; }
-    #x-to-md-candidate-overlay button { width: 32px !important; height: 32px !important; margin: 0 !important; padding: 0 !important; border: 0 !important; border-radius: 9999px !important; background: transparent !important; color: inherit !important; font: 400 24px/32px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important; cursor: pointer !important; }
-    #x-to-md-candidate-overlay button:hover { background: rgba(15, 20, 25, .1) !important; }
-  `;
-  const panel = document.createElement("aside");
-  panel.id = "x-to-md-candidate-overlay";
-  panel.setAttribute("aria-label", "Candidate collection");
-  panel.innerHTML = `<span>候选集 · ${visibleCandidates.length}/${candidateUrls.size}</span><button type="button" aria-label="关闭候选集">×</button>`;
-  document.head.append(style);
-  document.body.append(panel);
-  candidateOverlayState = { panel, style, hiddenRoots };
-  panel.querySelector("button")?.addEventListener("click", restoreCandidateOverlay);
-  return { ok: true, open: true, visible: visibleCandidates.length, total: candidateUrls.size };
-}
-
-function isActiveInboxCandidate(candidate) {
-  return candidate && !["ignored", "saved"].includes(candidate.status);
-}
-
-function matchesInboxCandidate(candidate, sourceUrl) {
-  return normalizedSourceUrl(candidate?.sourceUrl) === normalizedSourceUrl(sourceUrl);
-}
-
-function matchesLibraryAsset(asset, sourceUrl) {
-  return normalizedSourceUrl(asset?.sourceUrl) === normalizedSourceUrl(sourceUrl);
-}
-
-function openArticleForExtraction(candidate) {
-  const sourceUrl = normalizedSourceUrl(candidate?.sourceUrl);
-  if (!sourceUrl) return;
-  location.assign(sourceUrl);
+function matchesSource(item, sourceUrl) {
+  return normalizedSourceUrl(item?.sourceUrl) === normalizedSourceUrl(sourceUrl);
 }
 
 function showPageToast(message, action = null) {
@@ -548,174 +515,56 @@ function showPageToast(message, action = null) {
 }
 
 async function extractAndCopyCurrentPage() {
-  const capture = await capturePage();
+  const candidate = contentCandidateFromPage();
+  const capture = await capturePage(findRoot(), candidate?.sourceUrl || location.href, candidate, { validateLocation: true });
   await navigator.clipboard.writeText(capture.content);
-  chrome.runtime.sendMessage({ type: "capture-completed", sourceUrl: capture.sourceUrl }).catch(() => {});
-  showPageToast("Copied to clipboard");
+  showPageToast("Markdown 已复制");
 }
 
 async function previewCurrentPageMarkdown(candidate = null, root = null) {
-  const capture = await capturePage(root || findRoot(), candidate?.sourceUrl || location.href, candidate);
-  const result = await chrome.runtime.sendMessage({ type: "open-markdown-preview", capture });
+  if (candidate?.contentType !== "article") throw new Error("只有 Article 支持 Markdown 预览。");
+  const capture = await capturePage(root || findRoot(), candidate?.sourceUrl || location.href, candidate, { validateLocation: true });
+  const result = await chrome.runtime.sendMessage({ type: "open-markdown-preview", capture, canSave: true });
   if (result?.error) throw new Error(result.error);
-}
-
-async function copyCurrentPageText(candidate = null, root = null) {
-  const capture = await capturePage(root || findRoot(), candidate?.sourceUrl || location.href, candidate);
-  const plainText = (capture.blocks || [])
-    .filter((block) => block.type !== "image")
-    .map((block) => block.text || block.altText || "")
-    .filter(Boolean)
-    .join("\n\n")
-    .trim();
-  await navigator.clipboard.writeText(plainText || capture.content || "");
-  showPageToast("文本已复制");
 }
 
 async function saveCurrentPageToLibrary(candidate = null, root = null) {
-  const capture = await capturePage(root || findRoot(), candidate?.sourceUrl || location.href, candidate);
-  const result = await chrome.runtime.sendMessage({ type: "save-capture-to-library", capture });
+  const article = candidate || contentCandidateFromPage(articleActionsAuthor(root || findRoot(), candidate));
+  if (article?.contentType !== "article") throw new Error("只有 Article 可以保存为素材。");
+  const capture = await capturePage(root || findRoot(), article.sourceUrl, article, { validateLocation: true });
+  const result = await chrome.runtime.sendMessage({ type: "save-article-asset", capture });
   if (result?.error) throw new Error(result.error);
-  showPageToast(result?.existing ? "已加入，请查看 " : "已加入，请查看 ", { label: "素材库", view: "assets" });
+  showPageToast("已保存为素材 · ", { label: "查看", view: "assets" });
 }
 
 async function removeCurrentPageFromLibrary(sourceUrl) {
-  const result = await chrome.runtime.sendMessage({ type: "remove-capture-from-library", sourceUrl });
+  const result = await chrome.runtime.sendMessage({ type: "remove-article-asset", sourceUrl });
   if (result?.error) throw new Error(result.error);
-  showPageToast("已移除，请查看 ", { label: "素材库", view: "assets" });
+  showPageToast("已从素材库移除");
 }
 
-async function addInboxCandidate(candidate) {
-  const stored = await chrome.storage.local.get(CONTENT_INBOX_STORAGE_KEY);
-  const inbox = stored[CONTENT_INBOX_STORAGE_KEY] || {};
-  const candidates = inbox.candidates || [];
-  const existingIndex = candidates.findIndex((item) => matchesInboxCandidate(item, candidate.sourceUrl));
-  const addedAt = new Date().toISOString();
-  if (existingIndex >= 0) {
-    const existing = candidates[existingIndex];
-    candidates[existingIndex] = { ...existing, ...candidate, id: existing.id || candidate.id, status: "new", addedAt };
-  } else {
-    candidates.push({ ...candidate, status: "new", addedAt });
-  }
-  await chrome.storage.local.set({ [CONTENT_INBOX_STORAGE_KEY]: { ...inbox, candidates } });
-  showPageToast("已加入，请查看 ", { label: "候选集", view: "candidates" });
+async function addReadingArticle(reference) {
+  const result = await chrome.runtime.sendMessage({ type: "save-reading-article", reference });
+  if (result?.error) throw new Error(result.error);
+  showPageToast("已加入待读 · ", { label: "查看", view: "readingList" });
 }
 
-async function removeInboxCandidate(sourceUrl) {
-  const stored = await chrome.storage.local.get(CONTENT_INBOX_STORAGE_KEY);
-  const inbox = stored[CONTENT_INBOX_STORAGE_KEY] || {};
-  const candidates = inbox.candidates || [];
-  const candidate = candidates.find((item) => matchesInboxCandidate(item, sourceUrl) && isActiveInboxCandidate(item));
-  if (candidate) candidate.status = "ignored";
-  await chrome.storage.local.set({ [CONTENT_INBOX_STORAGE_KEY]: { ...inbox, candidates } });
-  showPageToast("已移除，请查看 ", { label: "候选集", view: "candidates" });
+async function removeReadingArticle(sourceUrl) {
+  const result = await chrome.runtime.sendMessage({ type: "remove-reading-article", sourceUrl });
+  if (result?.error) throw new Error(result.error);
+  showPageToast("已从待读移除");
 }
 
-function isWithinAnchorOrToolbar(target, anchor, toolbarSelector) {
-  return Boolean(target?.closest?.(toolbarSelector) || (target instanceof Node && anchor?.contains(target)));
+async function saveCollectedAuthor(author) {
+  const result = await chrome.runtime.sendMessage({ type: "save-author", author });
+  if (result?.error) throw new Error(result.error);
+  showPageToast("已收藏作者 · ", { label: "查看", view: "authors" });
 }
 
-function removeFollowSubscriptionToolbar() {
-  if (followSubscriptionHideTimer) window.clearTimeout(followSubscriptionHideTimer);
-  followSubscriptionHideTimer = null;
-  document.querySelector("#x-to-md-follow-subscription-toolbar")?.remove();
-  document.querySelector("#x-to-md-follow-subscription-style")?.remove();
-  followSubscriptionState = null;
-}
-
-function scheduleRemoveFollowSubscriptionToolbar() {
-  if (followSubscriptionHideTimer) window.clearTimeout(followSubscriptionHideTimer);
-  followSubscriptionHideTimer = window.setTimeout(removeFollowSubscriptionToolbar, 180);
-}
-
-function positionFollowSubscriptionToolbar(toolbar, followButton) {
-  if (!toolbar.isConnected || !followButton.isConnected) return;
-  const buttonRect = followButton.getBoundingClientRect();
-  const toolbarRect = toolbar.getBoundingClientRect();
-  const left = Math.min(Math.max(buttonRect.right - toolbarRect.width, 8), window.innerWidth - toolbarRect.width - 8);
-  const below = buttonRect.bottom + 6;
-  const above = buttonRect.top - toolbarRect.height - 6;
-  toolbar.style.left = `${left}px`;
-  toolbar.style.top = `${below + toolbarRect.height <= window.innerHeight - 8 ? below : Math.max(8, above)}px`;
-}
-
-async function saveAuthorSubscription(author) {
-  const stored = await chrome.storage.local.get(CONTENT_INBOX_STORAGE_KEY);
-  const inbox = stored[CONTENT_INBOX_STORAGE_KEY] || {};
-  const subscriptions = inbox.subscriptions || [];
-  const existingSubscription = subscriptions.find((subscription) => subscription.handle?.toLowerCase() === author.handle.toLowerCase());
-  const authorMetadata = { displayName: author.displayName, profileUrl: author.profileUrl, authorAvatarUrl: author.authorAvatarUrl, description: author.description, authorVerified: author.authorVerified };
-  if (existingSubscription) Object.assign(existingSubscription, authorMetadata);
-  else subscriptions.push({ id: `sub_${crypto.randomUUID?.() || Date.now()}`, handle: author.handle, addedAt: new Date().toISOString(), ...authorMetadata });
-  await chrome.storage.local.set({ [CONTENT_INBOX_STORAGE_KEY]: { ...inbox, subscriptions } });
-  showPageToast("已加入，请查看 ", { label: "关注", view: "subscriptions" });
-}
-
-async function removeAuthorSubscription(handle) {
-  const stored = await chrome.storage.local.get(CONTENT_INBOX_STORAGE_KEY);
-  const inbox = stored[CONTENT_INBOX_STORAGE_KEY] || {};
-  const subscriptions = (inbox.subscriptions || [])
-    .filter((subscription) => subscription.handle?.toLowerCase() !== handle.toLowerCase());
-  await chrome.storage.local.set({ [CONTENT_INBOX_STORAGE_KEY]: { ...inbox, subscriptions } });
-  showPageToast("已移除，请查看 ", { label: "关注", view: "subscriptions" });
-}
-
-async function showFollowSubscriptionToolbar(followButton, author) {
-  removeBookmarkCandidateToolbar();
-  removeFollowSubscriptionToolbar();
-  followSubscriptionState = { followButton, author, toolbar: null, isFollowing: false };
-  const stored = await chrome.storage.local.get(CONTENT_INBOX_STORAGE_KEY);
-  if (followSubscriptionState?.followButton !== followButton || !followButton.isConnected) return;
-  const isFollowing = (stored[CONTENT_INBOX_STORAGE_KEY]?.subscriptions || [])
-    .some((subscription) => subscription.handle?.toLowerCase() === author.handle.toLowerCase());
-  const style = document.createElement("style");
-  style.id = "x-to-md-follow-subscription-style";
-  style.textContent = `
-    #x-to-md-follow-subscription-toolbar { --x-background: var(--twitter-color-background, rgb(255, 255, 255)); --x-border: var(--twitter-color-border, rgb(239, 243, 244)); position: fixed !important; z-index: 2147483647 !important; padding: 4px !important; border: 1px solid var(--x-border) !important; border-radius: 9999px !important; background: var(--x-background) !important; box-shadow: 0 4px 12px rgba(15, 20, 25, .15) !important; }
-    #x-to-md-follow-subscription-toolbar button { display: block !important; min-height: 32px !important; margin: 0 !important; padding: 0 14px !important; border: 0 !important; border-radius: 9999px !important; background: #1D9BF0 !important; color: #FFFFFF !important; font: 700 14px/20px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important; cursor: pointer !important; white-space: nowrap !important; }
-    #x-to-md-follow-subscription-toolbar button:hover { background: #1D9BF0 !important; }
-    #x-to-md-follow-subscription-toolbar button.is-following { border: 1px solid rgb(207, 217, 222) !important; background: rgb(255, 255, 255) !important; color: rgb(15, 20, 25) !important; }
-    #x-to-md-follow-subscription-toolbar .cancel-follow-label { display: none !important; }
-    #x-to-md-follow-subscription-toolbar button.is-following:hover,
-    #x-to-md-follow-subscription-toolbar button.is-following:focus-visible { border-color: rgb(244, 33, 46) !important; background: rgba(244, 33, 46, .1) !important; color: rgb(244, 33, 46) !important; }
-    #x-to-md-follow-subscription-toolbar button.is-following:hover .following-label,
-    #x-to-md-follow-subscription-toolbar button.is-following:focus-visible .following-label { display: none !important; }
-    #x-to-md-follow-subscription-toolbar button.is-following:hover .cancel-follow-label,
-    #x-to-md-follow-subscription-toolbar button.is-following:focus-visible .cancel-follow-label { display: inline !important; }
-  `;
-  const toolbar = document.createElement("aside");
-  toolbar.id = "x-to-md-follow-subscription-toolbar";
-  toolbar.setAttribute("aria-label", `${isFollowing ? "Following" : "Follow"} ${author.handle}`);
-  toolbar.innerHTML = isFollowing
-    ? '<button class="is-following" type="button" data-toggle-follow-subscription><span class="following-label">Following</span><span class="cancel-follow-label">unfollow</span></button>'
-    : '<button type="button" data-toggle-follow-subscription>Follow</button>';
-  document.head.append(style);
-  document.body.append(toolbar);
-  followSubscriptionState = { followButton, author, toolbar, isFollowing };
-  positionFollowSubscriptionToolbar(toolbar, followButton);
-  toolbar.addEventListener("mousedown", (event) => event.preventDefault());
-  toolbar.addEventListener("pointerenter", () => {
-    if (followSubscriptionHideTimer) window.clearTimeout(followSubscriptionHideTimer);
-    followSubscriptionHideTimer = null;
-  });
-  toolbar.addEventListener("pointerleave", scheduleRemoveFollowSubscriptionToolbar);
-  toolbar.querySelector("[data-toggle-follow-subscription]")?.addEventListener("click", async () => {
-    const selectedState = followSubscriptionState;
-    if (!selectedState?.author) return;
-    if (selectedState.isFollowing) await removeAuthorSubscription(selectedState.author.handle);
-    else await saveAuthorSubscription(selectedState.author);
-    removeFollowSubscriptionToolbar();
-  });
-}
-
-function handleFollowButtonEntry(target) {
-  const followButton = followButtonFromTarget(target);
-  if (!followButton) return;
-  if (followSubscriptionHideTimer) window.clearTimeout(followSubscriptionHideTimer);
-  followSubscriptionHideTimer = null;
-  if (followSubscriptionState?.followButton === followButton) return;
-  const author = authorFromFollowButton(followButton);
-  if (author) showFollowSubscriptionToolbar(followButton, author).catch(removeFollowSubscriptionToolbar);
+async function removeCollectedAuthor(handle) {
+  const result = await chrome.runtime.sendMessage({ type: "remove-author", handle });
+  if (result?.error) throw new Error(result.error);
+  showPageToast("已取消收藏作者");
 }
 
 function removeArticleMoreMenu() {
@@ -726,113 +575,266 @@ function removeArticleMoreMenu() {
   articleMoreMenuState = null;
 }
 
-function ensureArticleActionsEntryStyle() {
-  if (document.querySelector("#x-to-md-article-actions-entry-style")) return;
-  const style = document.createElement("style");
-  style.id = "x-to-md-article-actions-entry-style";
-  style.textContent = `
-    button[data-x-to-md-article-actions-entry] {
-      border-radius: 9999px !important;
-      transition: background-color 0.2s ease !important;
-    }
-    button[data-x-to-md-article-actions-entry]:hover,
-    button[data-x-to-md-article-actions-entry]:focus-visible,
-    button[data-x-to-md-article-actions-entry][aria-expanded="true"] {
-      background-color: rgba(83, 100, 113, 0.1) !important;
-    }
-  `;
-  document.head.append(style);
+function articleActionsEntryIconPaths() {
+  return [
+    "M6.5 2.5h8.8l3.2 3.2v13.8A2.5 2.5 0 0 1 16 22H6.5A2.5 2.5 0 0 1 4 19.5V5A2.5 2.5 0 0 1 6.5 2.5zm8 2H6.5a.5.5 0 0 0-.5.5v14.5a.5.5 0 0 0 .5.5H16a.5.5 0 0 0 .5-.5V6.5h-2z",
+    "M9.2 9.1 7.4 12l1.8 2.9 1.5-.9-1.2-2 1.2-2zm5.6 0-1.5.9 1.2 2-1.2 2 1.5.9 1.8-2.9z",
+  ];
 }
 
-function articleActionsEntryIcon() {
-  return "M12 2.5C10.45 5.24 6.5 9.55 6.5 13.35A5.5 5.5 0 0 0 12 18.85a5.5 5.5 0 0 0 5.5-5.5C17.5 9.55 13.55 5.24 12 2.5z";
+function articleMoreButtonFromRoot(root) {
+  return [...root?.querySelectorAll?.('button[data-testid="caret"][aria-haspopup="menu"]') || []]
+    .find((button) => articleActionsContextFromMoreButton(button, root)) || null;
 }
 
-function grokActionsButtonFromRoot(root) {
-  return root?.querySelector?.('button[aria-label="Grok actions"]') || null;
+function articleActionsContextFromMoreButton(moreButton, ownerRoot = null) {
+  const moreSlot = moreButton?.parentElement;
+  const moreWrapper = moreSlot?.parentElement?.parentElement;
+  const actionsRow = moreWrapper?.parentElement;
+  if (!actionsRow || moreWrapper.parentElement !== actionsRow) return null;
+  if (ownerRoot?.matches?.('article[data-testid="tweet"]') && moreButton.closest('article[data-testid="tweet"]') !== ownerRoot) return null;
+  return { actionsRow, moreWrapper, moreSlot };
+}
+
+function articleActionsSlotStillOwned(slot) {
+  const actionsRow = slot?.parentElement;
+  if (!actionsRow || !slot.shadowRoot?.querySelector("[data-x-to-md-article-actions-entry]")) return false;
+  const moreButton = [...actionsRow.querySelectorAll('button[data-testid="caret"][aria-haspopup="menu"]')]
+    .find((button) => articleActionsContextFromMoreButton(button)?.actionsRow === actionsRow);
+  if (!moreButton) return false;
+  const card = slot.closest('article[data-testid="tweet"]');
+  return !card || moreButton.closest('article[data-testid="tweet"]') === card;
+}
+
+function neutralizeArticleActionsSlot(slot) {
+  slot?.shadowRoot?.replaceChildren();
+  slot?.querySelectorAll?.("[data-x-to-md-article-actions-entry]").forEach((entry) => entry.remove());
+  slot?.removeAttribute?.("data-x-to-md-article-actions-slot");
+  if (slot?.style?.marginLeft === "auto") slot.style.removeProperty("margin-left");
+}
+
+function removeOwnedArticleActionsSlotOrNeutralize(slot) {
+  if (articleActionsSlotStillOwned(slot)) slot.remove();
+  else neutralizeArticleActionsSlot(slot);
+}
+
+function removeInvalidArticleActionsSlots() {
+  document.querySelectorAll("[data-x-to-md-article-actions-slot]").forEach((slot) => {
+    const owner = slot.closest('article[data-testid="tweet"]')
+      || (isArticleSourcePage() ? articleActionsEntryRootFromPage() : null);
+    const moreButton = owner ? articleMoreButtonFromRoot(owner) : null;
+    const context = moreButton ? articleActionsContextFromMoreButton(moreButton, owner) : null;
+    if (!isValidArticleActionsOwner(owner) || !contentCandidateForActionsRoot(owner) || !context || slot.parentElement !== context.actionsRow) neutralizeArticleActionsSlot(slot);
+  });
+}
+
+function articleMoreButtonsFromNode(node) {
+  const element = node instanceof Element ? node : node?.parentElement;
+  if (!element) return [];
+  const buttons = [];
+  if (element.matches?.('button[data-testid="caret"][aria-haspopup="menu"]')) buttons.push(element);
+  element.querySelectorAll?.('button[data-testid="caret"][aria-haspopup="menu"]')
+    .forEach((button) => buttons.push(button));
+  return buttons;
+}
+
+function articleUtilityActionButtonFromRow(actionsRow) {
+  return [...actionsRow?.querySelectorAll?.('button[aria-label="Grok actions"], button[aria-label="Summarize"]') || []]
+    .find((button) => button.parentElement?.parentElement === actionsRow) || null;
 }
 
 function articleActionsRootFromTarget(target) {
   const tweet = target?.closest?.('article[data-testid="tweet"]');
   if (tweet) return tweet;
-  const articleCell = target?.closest?.('[data-testid="cellInnerDiv"]');
-  if (articleCell) return articleCell;
-  return isArticleSourcePage() ? articleCandidateRootFromPage() : null;
+  return isArticleSourcePage() ? articleActionsEntryRootFromPage() : null;
 }
 
-function injectArticleActionsEntry(root) {
-  if (!root?.isConnected || root.querySelector("[data-x-to-md-article-actions-entry]")) return;
-  const grokButton = grokActionsButtonFromRoot(root);
-  if (!grokButton?.parentElement) return;
-  const entry = grokButton.cloneNode(true);
-  const entrySlot = grokButton.parentElement.cloneNode(false);
+function contentCandidateForActionsRoot(root) {
+  if (!root?.isConnected) return null;
+  return isArticleSourcePage() ? contentCandidateFromPage() : articleCandidateFromListRoot(root);
+}
+
+function injectArticleActionsEntry(root, targetMoreButton = null) {
+  if (!root?.isConnected) return;
+  if (!isValidArticleActionsOwner(root)) return;
+  if (!contentCandidateForActionsRoot(root)) return;
+  const moreButton = targetMoreButton || articleMoreButtonFromRoot(root);
+  const main = document.querySelector("main");
+  if (!moreButton?.parentElement || !main?.contains(moreButton)) return;
+  const context = articleActionsContextFromMoreButton(moreButton, root);
+  if (!context) return;
+  const { actionsRow, moreWrapper, moreSlot } = context;
+  if (actionsRow.querySelector("[data-x-to-md-article-actions-slot]")) return;
+  const utilityButton = articleUtilityActionButtonFromRow(actionsRow);
+  const utilitySlot = utilityButton?.parentElement || null;
+  const geometrySlot = utilitySlot || moreSlot;
+  const entrySlot = document.createElement("div");
+  entrySlot.className = geometrySlot.className;
+  entrySlot.dataset.xToMdArticleActionsSlot = "true";
   entrySlot.style.marginLeft = "auto";
-  entry.removeAttribute("id");
+  const entryRoot = entrySlot.attachShadow({ mode: "open" });
+  const entry = document.createElement("button");
   entry.dataset.xToMdArticleActionsEntry = "true";
   entry.setAttribute("type", "button");
   entry.setAttribute("aria-label", "X to MD 操作");
   entry.setAttribute("aria-haspopup", "menu");
   entry.setAttribute("aria-expanded", "false");
   entry.setAttribute("title", "X to MD 操作");
-  ensureArticleActionsEntryStyle();
-  const entryIcon = entry.querySelector("svg");
-  if (!entryIcon) return;
+  const geometryButton = utilityButton || moreButton;
+  const buttonRect = geometryButton.getBoundingClientRect();
+  const sourceIcon = geometryButton.querySelector("svg");
+  const iconRect = sourceIcon?.getBoundingClientRect();
+  const entryStyle = document.createElement("style");
+  entryStyle.textContent = `
+    :host { display: block; }
+    button { display: flex; width: ${Math.round(buttonRect.width) || 34}px; height: ${Math.round(buttonRect.height) || 34}px; margin: 0; padding: 0; border: 0; border-radius: 9999px; align-items: center; justify-content: center; background: transparent; color: ${getComputedStyle(geometryButton).color}; cursor: pointer; transition: background-color 0.2s ease; }
+    button:hover, button:focus-visible, button[aria-expanded="true"] { background-color: rgba(83, 100, 113, 0.1); outline: none; }
+    svg { display: block; width: ${Math.round(iconRect?.width) || 20}px; height: ${Math.round(iconRect?.height) || 20}px; fill: currentColor; }
+  `;
+  const entryIcon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   entryIcon.setAttribute("viewBox", "0 0 24 24");
-  const entryIconPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  entryIconPath.setAttribute("d", articleActionsEntryIcon());
-  entryIcon.replaceChildren(entryIconPath);
+  entryIcon.setAttribute("aria-hidden", "true");
+  articleActionsEntryIconPaths().forEach((pathData) => {
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", pathData);
+    entryIcon.append(path);
+  });
+  entry.append(entryIcon);
   entry.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
-    openArticleActionsFromEntry(entry).catch(reportArticleMenuError);
+    openArticleActionsFromEntry(entry, root).catch(reportArticleMenuError);
   });
-  entrySlot.append(entry);
-  grokButton.parentElement.before(entrySlot);
+  entryRoot.append(entryStyle, entry);
+  (utilitySlot || moreWrapper).before(entrySlot);
 }
 
 function injectVisibleArticleActionsEntries() {
-  document.querySelectorAll('article[data-testid="tweet"], [data-testid="cellInnerDiv"]').forEach(injectArticleActionsEntry);
-  if (isArticleSourcePage()) injectArticleActionsEntry(articleCandidateRootFromPage());
+  removeInvalidArticleActionsSlots();
+  const statusCard = statusSourceCardFromPage();
+  if (statusCard) {
+    injectArticleActionsEntry(statusCard);
+    return;
+  }
+  document.querySelectorAll('article[data-testid="tweet"]').forEach(injectArticleActionsEntry);
+  if (isArticleSourcePage()) injectArticleActionsEntry(articleActionsEntryRootFromPage());
+}
+
+function flushArticleActionsEntries() {
+  articleActionsEntryFlushFrame = null;
+  if (contentScriptDisposed) return;
+  const scanVisible = articleActionsEntryVisibleScanPending;
+  const roots = [...pendingArticleActionsRoots];
+  const moreButtons = [...pendingArticleActionsMoreButtons];
+  articleActionsEntryVisibleScanPending = false;
+  pendingArticleActionsRoots.clear();
+  pendingArticleActionsMoreButtons.clear();
+  if (scanVisible) {
+    injectVisibleArticleActionsEntries();
+    return;
+  }
+  removeInvalidArticleActionsSlots();
+  roots.filter((root) => root?.isConnected).forEach(injectArticleActionsEntry);
+  moreButtons.filter((button) => button?.isConnected).forEach((button) => {
+    const root = articleActionsRootFromTarget(button);
+    if (root) injectArticleActionsEntry(root, button);
+  });
+}
+
+function scheduleArticleActionsEntries({ roots = [], moreButtons = [], scanVisible = false } = {}) {
+  roots.forEach((root) => pendingArticleActionsRoots.add(root));
+  moreButtons.forEach((button) => pendingArticleActionsMoreButtons.add(button));
+  articleActionsEntryVisibleScanPending ||= scanVisible;
+  if (contentScriptDisposed || articleActionsEntryFlushFrame !== null) return;
+  articleActionsEntryFlushFrame = window.requestAnimationFrame(flushArticleActionsEntries);
+}
+
+function ensureArticleActionsEntryHostObserver() {
+  if (contentScriptDisposed || articleActionsEntryHostObserver || !articleActionsEntryObservedRoot?.parentElement) return;
+  const host = articleActionsEntryObservedRoot.parentElement;
+  articleActionsEntryHostObserver = new MutationObserver(() => {
+    const nextRoot = document.querySelector("main");
+    if (!nextRoot) return;
+    if (nextRoot !== articleActionsEntryObservedRoot || !articleActionsEntryObservedRoot?.isConnected) {
+      startArticleActionsEntryObserver();
+    }
+  });
+  articleActionsEntryHostObserver.observe(host, { childList: true });
+}
+
+function waitForArticleActionsEntryMain() {
+  if (contentScriptDisposed || articleActionsEntryWaitObserver) return;
+  const reactRoot = document.querySelector("#react-root");
+  if (!reactRoot) {
+    recordArticleMenuDiagnostic("missing-react-root");
+    return;
+  }
+  recordArticleMenuDiagnostic("waiting-for-main");
+  articleActionsEntryWaitObserver = new MutationObserver(() => {
+    if (!document.querySelector("main")) return;
+    articleActionsEntryWaitObserver?.disconnect();
+    articleActionsEntryWaitObserver = null;
+    startArticleActionsEntryObserver();
+  });
+  articleActionsEntryWaitObserver.observe(reactRoot, { childList: true, subtree: true });
+  if (document.querySelector("main")) {
+    articleActionsEntryWaitObserver.disconnect();
+    articleActionsEntryWaitObserver = null;
+    startArticleActionsEntryObserver();
+  }
 }
 
 function startArticleActionsEntryObserver() {
-  if (contentScriptDisposed || articleActionsEntryObserver) return;
+  if (contentScriptDisposed) return;
   const timelineRoot = document.querySelector("main");
   if (!timelineRoot) {
-    if (!articleActionsEntryStartTimer) {
-      recordArticleMenuDiagnostic("waiting-for-main");
-      articleActionsEntryStartTimer = window.setTimeout(() => {
-        articleActionsEntryStartTimer = null;
-        startArticleActionsEntryObserver();
-      }, 100);
-    }
+    waitForArticleActionsEntryMain();
     return;
   }
+  articleActionsEntryWaitObserver?.disconnect();
+  articleActionsEntryWaitObserver = null;
+  if (articleActionsEntryObserver && articleActionsEntryObservedRoot === timelineRoot && articleActionsEntryObservedRoot?.isConnected) {
+    scheduleArticleActionsEntries({ scanVisible: true });
+    return;
+  }
+  articleActionsEntryObserver?.disconnect();
   articleActionsEntryObserver = new MutationObserver((mutations) => {
     const roots = new Set();
+    const moreButtons = new Set();
     mutations.forEach((mutation) => {
       const targetRoot = articleActionsRootFromTarget(mutation.target);
       if (targetRoot) roots.add(targetRoot);
+      articleMoreButtonsFromNode(mutation.target).forEach((button) => moreButtons.add(button));
       mutation.addedNodes.forEach((node) => {
         if (!(node instanceof Element)) return;
         const contextualRoot = articleActionsRootFromTarget(node);
         if (contextualRoot) roots.add(contextualRoot);
-        node.querySelectorAll?.('article[data-testid="tweet"], [data-testid="cellInnerDiv"]')
+        articleMoreButtonsFromNode(node).forEach((button) => moreButtons.add(button));
+        node.querySelectorAll?.('article[data-testid="tweet"]')
           .forEach((root) => roots.add(root));
       });
     });
-    roots.forEach(injectArticleActionsEntry);
+    scheduleArticleActionsEntries({ roots, moreButtons });
   });
-  articleActionsEntryObserver.observe(timelineRoot, { childList: true, subtree: true });
+  articleActionsEntryObserver.observe(timelineRoot, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["data-harvest-observe-id"],
+  });
+  articleActionsEntryObservedRoot = timelineRoot;
+  articleActionsEntryHostObserver?.disconnect();
+  articleActionsEntryHostObserver = null;
+  ensureArticleActionsEntryHostObserver();
   recordArticleMenuDiagnostic("observing-main");
-  injectVisibleArticleActionsEntries();
+  scheduleArticleActionsEntries({ scanVisible: true });
 }
 
-function followPersonIcon() {
+function saveAuthorIcon() {
   return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4c-1.105 0-2 .9-2 2s.895 2 2 2 2-.9 2-2-.895-2-2-2zM6 6c0-2.21 1.791-4 4-4s4 1.79 4 4-1.791 4-4 4-4-1.79-4-4zm13 4v3h2v-3h3V8h-3V5h-2v3h-3v2h3zM3.651 19h12.698c-.337-1.8-1.023-3.21-1.945-4.19C13.318 13.65 11.838 13 10 13s-3.317.65-4.404 1.81c-.922.98-1.608 2.39-1.945 4.19zm.486-5.56C5.627 11.85 7.648 11 10 11s4.373.85 5.863 2.44c1.477 1.58 2.366 3.8 2.632 6.46l.11 1.1H1.395l.11-1.1c.266-2.66 1.155-4.88 2.632-6.46z"></path></svg>';
 }
 
-function unfollowPersonIcon() {
+function removeAuthorIcon() {
   return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4c-1.105 0-2 .9-2 2s.895 2 2 2 2-.9 2-2-.895-2-2-2zM6 6c0-2.21 1.791-4 4-4s4 1.79 4 4-1.791 4-4 4-4-1.79-4-4zm12.586 3l-2.043-2.04 1.414-1.42L20 7.59l2.043-2.05-1.414-1.42L18.586 9zM3.651 19h12.698c-.337-1.8-1.023-3.21-1.945-4.19C13.318 13.65 11.838 13 10 13s-3.317.65-4.404 1.81c-.922.98-1.608 2.39-1.945 4.19zm.486-5.56C5.627 11.85 7.648 11 10 11s4.373.85 5.863 2.44c1.477 1.58 2.366 3.8 2.632 6.46l.11 1.1H1.395l.11-1.1c.266-2.66 1.155-4.88 2.632-6.46z"></path></svg>';
 }
 
@@ -849,7 +851,7 @@ function setMenuRowIcon(row, icon) {
   row.prepend(iconSlot);
 }
 
-function candidateTrayIcon() {
+function readingTrayIcon() {
   return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 5.5h17l-2 12.5H5.5L3.5 5.5zm2.7 2 1.1 7h9.4l1.1-7H6.2zM8 3h8v2H8z"></path><path d="M9 11h6v2H9z"></path></svg>';
 }
 
@@ -911,7 +913,7 @@ function createArticleActionsMenuStyle() {
     #x-to-md-article-actions-menu [data-x-to-md-action] {
       display: flex !important;
       width: 100% !important;
-      min-height: 48px !important;
+      min-height: 44px !important;
       margin: 0 !important;
       padding: 12px 16px !important;
       border: 0 !important;
@@ -944,14 +946,14 @@ async function showArticleActionsMenu(entry, sourceCandidate, root) {
   if (articleMoreMenuPending === entry) return;
   removeArticleMoreMenu();
   articleMoreMenuPending = entry;
-  const author = articleActionsAuthor(root, sourceCandidate);
-  const candidate = sourceCandidate && author ? {
+  const discoveredAuthor = articleActionsAuthor(root, sourceCandidate);
+  const candidate = sourceCandidate && discoveredAuthor ? {
     ...sourceCandidate,
-    authorHandle: sourceCandidate.authorHandle || author.handle,
-    authorName: sourceCandidate.authorName || author.displayName,
+    authorHandle: sourceCandidate.authorHandle || discoveredAuthor.handle,
+    authorName: sourceCandidate.authorName || discoveredAuthor.displayName,
   } : sourceCandidate;
-  if (!author || !candidate) {
-    recordArticleMenuDiagnostic("missing-menu-context", { hasAuthor: Boolean(author), hasCandidate: Boolean(candidate) });
+  if (!candidate) {
+    recordArticleMenuDiagnostic("missing-menu-context", { hasCandidate: false });
     articleMoreMenuPending = null;
     return;
   }
@@ -965,10 +967,17 @@ async function showArticleActionsMenu(entry, sourceCandidate, root) {
   if (articleMoreMenuPending !== entry || !entry.isConnected) return;
   articleMoreMenuPending = null;
   recordArticleMenuDiagnostic("storage-read");
-  const inbox = stored[CONTENT_INBOX_STORAGE_KEY] || {};
-  const isFollowing = (inbox.subscriptions || []).some((item) => item.handle?.toLowerCase() === author.handle.toLowerCase());
-  const isInInbox = (inbox.candidates || []).some((item) => matchesInboxCandidate(item, candidate.sourceUrl) && isActiveInboxCandidate(item));
-  const isInLibrary = (inbox.assets || []).some((item) => matchesLibraryAsset(item, candidate.sourceUrl));
+  const inbox = stored[CONTENT_INBOX_STORAGE_KEY]?.schemaVersion === 1 ? stored[CONTENT_INBOX_STORAGE_KEY] : {};
+  const author = discoveredAuthor || {
+    handle: candidate.authorHandle || "",
+    displayName: candidate.authorName || candidate.authorHandle || "",
+    authorAvatarUrl: candidate.authorAvatarUrl || "",
+    authorVerified: Boolean(candidate.authorVerified),
+    description: "",
+  };
+  const isAuthorSaved = (inbox.authors || []).some((item) => item.handle?.replace(/^@/u, "").toLowerCase() === author.handle?.replace(/^@/u, "").toLowerCase());
+  const isInReadingList = (inbox.readingList || []).some((item) => matchesSource(item, candidate.sourceUrl));
+  const isInLibrary = (inbox.assets || []).some((item) => matchesSource(item, candidate.sourceUrl));
   const menu = document.createElement("div");
   menu.id = "x-to-md-article-actions-menu";
   menu.setAttribute("role", "menu");
@@ -986,20 +995,20 @@ async function showArticleActionsMenu(entry, sourceCandidate, root) {
     labelSlot.textContent = label;
     row.append(labelSlot);
     const runAction = async () => {
-      if (action === "follow") {
-        if (isFollowing) await removeAuthorSubscription(author.handle);
-        else await saveAuthorSubscription(author);
-      } else if (action === "extract") {
+      if (action === "author") {
+        if (isAuthorSaved) await removeCollectedAuthor(author.handle);
+        else await saveCollectedAuthor(author);
+      } else if (action === "preview") {
         await previewCurrentPageMarkdown(candidate, root);
-      } else if (action === "copy-text") {
-        await copyCurrentPageText(candidate, root);
+      } else if (action === "copy-markdown") {
+        await extractAndCopyCurrentPage();
       } else if (action === "library") {
         if (isInLibrary) await removeCurrentPageFromLibrary(candidate.sourceUrl);
         else await saveCurrentPageToLibrary(candidate, root);
-      } else if (isInInbox) {
-        await removeInboxCandidate(candidate.sourceUrl);
+      } else if (isInReadingList) {
+        await removeReadingArticle(candidate.sourceUrl);
       } else {
-        await addInboxCandidate(candidate);
+        await addReadingArticle(candidate);
       }
       removeArticleMoreMenu();
     };
@@ -1012,13 +1021,17 @@ async function showArticleActionsMenu(entry, sourceCandidate, root) {
     });
     return row;
   };
-  menu.append(
-    actionRow(isFollowing ? "取消关注" : "关注", isFollowing ? unfollowPersonIcon() : followPersonIcon(), "follow"),
-    actionRow("预览/复制 Markdown", markdownPreviewIcon(), "extract"),
-    actionRow("复制文本", copyTextIcon(), "copy-text"),
-    actionRow(isInLibrary ? "从素材库移除" : "加入素材库", libraryBookmarkIcon(), "library"),
-    actionRow(isInInbox ? "从候选集移除" : "加入候选集", candidateTrayIcon(), "inbox"),
-  );
+  if (candidate.contentType === "post") {
+    menu.append(actionRow("复制 Markdown", copyTextIcon(), "copy-markdown"));
+  } else if (!isArticleSourcePage()) {
+    menu.append(actionRow(isInReadingList ? "从待读移除" : "加入待读", readingTrayIcon(), "reading-list"));
+  } else {
+    menu.append(
+      actionRow(isInLibrary ? "从素材库移除" : "保存为素材", libraryBookmarkIcon(), "library"),
+      actionRow("预览 / 复制 Markdown", markdownPreviewIcon(), "preview"),
+      actionRow(isAuthorSaved ? "取消收藏作者" : "收藏作者", isAuthorSaved ? removeAuthorIcon() : saveAuthorIcon(), "author"),
+    );
+  }
   const style = createArticleActionsMenuStyle();
   document.head.append(style);
   document.body.append(menu);
@@ -1028,38 +1041,13 @@ async function showArticleActionsMenu(entry, sourceCandidate, root) {
   recordArticleMenuDiagnostic("actions-menu-opened");
 }
 
-document.addEventListener("pointerover", (event) => {
-  handleFollowButtonEntry(event.target);
-}, contentScriptEventOptions);
-document.addEventListener("focusin", (event) => {
-  handleFollowButtonEntry(event.target);
-}, contentScriptEventOptions);
-document.addEventListener("pointerout", (event) => {
-  const anchoredButton = event.target?.closest?.("button") === followSubscriptionState?.followButton;
-  if (anchoredButton && !isWithinAnchorOrToolbar(event.relatedTarget, followSubscriptionState?.followButton, "#x-to-md-follow-subscription-toolbar")) scheduleRemoveFollowSubscriptionToolbar();
-}, contentScriptEventOptions);
-document.addEventListener("focusout", (event) => {
-  const anchoredButton = event.target?.closest?.("button") === followSubscriptionState?.followButton;
-  if (anchoredButton && !isWithinAnchorOrToolbar(event.relatedTarget, followSubscriptionState?.followButton, "#x-to-md-follow-subscription-toolbar")) scheduleRemoveFollowSubscriptionToolbar();
-}, contentScriptEventOptions);
-document.addEventListener("click", (event) => {
-  const clickedButton = event.target?.closest?.("button");
-  if (clickedButton === followSubscriptionState?.followButton) {
-    window.setTimeout(() => {
-      if (!followButtonFromTarget(clickedButton)) removeFollowSubscriptionToolbar();
-    }, 0);
-  }
-}, contentScriptEventOptions);
-
-async function openArticleActionsFromEntry(entry) {
-  const root = articleActionsRootFromTarget(entry);
+async function openArticleActionsFromEntry(entry, sourceRoot = null) {
+  const root = sourceRoot || articleActionsRootFromTarget(entry);
   if (!root) {
     recordArticleMenuDiagnostic("missing-actions-entry-context", { hasRoot: false });
     return;
   }
-  const candidate = isArticleSourcePage()
-    ? contentCandidateFromPage()
-    : articleCandidateFromListRoot(root) || postCandidateFromRoot(root);
+  const candidate = contentCandidateForActionsRoot(root);
   articleMoreTriggerState = { candidate, root, entry };
   recordArticleMenuDiagnostic("actions-entry-triggered", { hasCandidate: Boolean(candidate) });
   await showArticleActionsMenu(entry, candidate, root);
@@ -1070,8 +1058,7 @@ startArticleActionsEntryObserver();
 document.addEventListener("mousedown", (event) => {
   if (articleMoreMenuState
     && !event.target.closest("#x-to-md-article-actions-menu")
-    && !event.target.closest("[data-x-to-md-article-actions-entry]")) removeArticleMoreMenu();
-  if (!event.target.closest("#x-to-md-follow-subscription-toolbar") && event.target.closest("button") !== followSubscriptionState?.followButton) removeFollowSubscriptionToolbar();
+    && !event.target.closest("[data-x-to-md-article-actions-slot]")) removeArticleMoreMenu();
 }, { capture: true, ...contentScriptEventOptions });
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && articleMoreMenuState) {
@@ -1082,100 +1069,6 @@ document.addEventListener("keydown", (event) => {
 }, contentScriptEventOptions);
 window.addEventListener("resize", removeArticleMoreMenu, contentScriptEventOptions);
 window.addEventListener("scroll", removeArticleMoreMenu, { capture: true, ...contentScriptEventOptions });
-
-function importPanelStyle() {
-  const style = document.createElement("style");
-  style.id = "x-to-md-import-panel-style";
-  style.textContent = `
-    #x-to-md-import-panel,
-    #x-to-md-import-panel * {
-      box-sizing: border-box !important;
-    }
-    #x-to-md-import-panel {
-      position: fixed !important; top: 16px !important; right: 16px !important;
-      z-index: 2147483646 !important; box-sizing: border-box !important;
-      width: 300px !important; padding: 20px !important;
-      border: 1px solid rgb(239, 243, 244) !important;
-      border-radius: 16px !important; background: rgb(255, 255, 255) !important;
-      box-shadow: 0 2px 8px rgba(15, 20, 25, .08), 0 8px 24px rgba(15, 20, 25, .14) !important;
-      color: rgb(15, 20, 25) !important;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
-      font-size: 15px !important; line-height: 1.4 !important;
-    }
-    #x-to-md-import-panel h2 {
-      margin: 0 !important; color: rgb(15, 20, 25) !important;
-      font: 700 20px/1.25 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
-      letter-spacing: -.015em !important;
-    }
-    #x-to-md-import-panel p {
-      margin: 8px 0 20px !important; color: rgb(83, 100, 113) !important;
-      font: 400 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
-    }
-    #x-to-md-import-panel button {
-      display: flex !important; align-items: center !important; justify-content: center !important;
-      box-sizing: border-box !important; width: 100% !important;
-      height: 46px !important; min-height: 46px !important; margin: 0 !important; padding: 0 18px !important;
-      border: 0 !important; border-radius: 9999px !important; appearance: none !important;
-      background: rgb(15, 20, 25) !important; color: #fff !important; cursor: pointer !important;
-      font: 700 15px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
-      text-align: center !important; white-space: nowrap !important;
-    }
-    #x-to-md-import-panel button:hover { background: rgb(39, 44, 48) !important; }
-    #x-to-md-import-panel button:disabled { opacity: .6 !important; cursor: wait !important; }
-    #x-to-md-import-panel [data-import-status]:not(:empty) {
-      margin-top: 12px !important; color: rgb(244, 33, 46) !important;
-      font: 400 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
-    }
-    #x-to-md-import-panel [data-import-status].is-success { color: rgb(0, 186, 124) !important; }
-  `;
-  return style;
-}
-
-function removeImportPanel() {
-  if (!importPanelState) return;
-  importPanelState.style.remove();
-  importPanelState.panel.remove();
-  importPanelState = null;
-}
-
-function createImportPanel() {
-  if (importPanelState) return;
-  const style = importPanelStyle();
-  const panel = document.createElement("aside");
-  panel.id = "x-to-md-import-panel";
-  panel.setAttribute("aria-label", "Copy Markdown");
-  panel.innerHTML = '<h2>Copy Markdown</h2><p>Copy the current X content as Markdown. Nothing is uploaded.</p><button type="button" data-import>Extract and copy</button><div data-import-status role="status" aria-live="polite"></div>';
-  document.head.append(style);
-  document.body.append(panel);
-  importPanelState = { panel, style, capture: null };
-  const button = panel.querySelector("[data-import]");
-  const status = panel.querySelector("[data-import-status]");
-  button.addEventListener("click", async () => {
-    const panelState = importPanelState;
-    if (!panelState) return;
-    button.disabled = true;
-    button.textContent = "Extracting…";
-    status.textContent = "";
-    status.className = "";
-    try {
-      await extractAndCopyCurrentPage();
-      button.disabled = false;
-      button.textContent = "Extract and copy";
-      status.textContent = "Copied to clipboard";
-      status.className = "is-success";
-    } catch (error) {
-      status.textContent = error.message || "Extraction failed. Please try again.";
-      button.disabled = false;
-      button.textContent = "Extract and copy";
-    }
-  });
-}
-
-function toggleImportPanel() {
-  if (importPanelState) removeImportPanel();
-  else createImportPanel();
-}
-
 
 const CODE_NODE_SELECTOR = 'pre, code, [data-testid="codeBlock"], [data-testid*="code"], [role="code"], [class*="longform-code"], [class*="code-block"]';
 const CODE_COMPOSITE_SELECTOR = '[class*="longform-atomic"], [data-testid="codeBlock"], [class*="code-block"]';
@@ -1376,24 +1269,22 @@ async function expandCollapsedContent(root) {
   }
 }
 
-async function revealLazyContent(root) {
-  const scrollElement = document.scrollingElement;
-  const previousScrollTop = scrollElement?.scrollTop || 0;
-  const hadLongPage = (scrollElement?.scrollHeight || 0) > window.innerHeight * 1.5;
-  if (hadLongPage) {
-    window.scrollTo(0, scrollElement.scrollHeight);
-    await waitForRender(500);
-  }
+async function prepareTargetContent(root) {
+  if (!root?.isConnected) throw new Error("目标内容已离开页面，请重新打开原文后重试。");
   await expandCollapsedContent(root);
-  if (hadLongPage) {
-    window.scrollTo(0, previousScrollTop);
-    await waitForRender(250);
-  }
+  if (!root.isConnected) throw new Error("目标内容在采集过程中发生变化，请重试。");
 }
 
-async function capturePage(root = findRoot(), sourceUrl = location.href, sourceCandidate = null) {
+async function capturePage(root = findRoot(), sourceUrl = location.href, sourceCandidate = null, { validateLocation = false } = {}) {
   if (!root) throw new Error("Open a post or Article and try again.");
-  await revealLazyContent(root);
+  const expectedSourceUrl = normalizedSourceUrl(sourceUrl);
+  if (validateLocation && expectedSourceUrl && expectedSourceUrl !== normalizedSourceUrl(location.href)) {
+    throw new Error("当前页面与目标原文不一致。");
+  }
+  await prepareTargetContent(root);
+  if (validateLocation && expectedSourceUrl && expectedSourceUrl !== normalizedSourceUrl(location.href)) {
+    throw new Error("采集过程中原文地址发生变化，请重试。");
+  }
   const sourceHandle = decodeURIComponent(location.pathname.split("/").filter(Boolean)[0] || "");
   const blocks = [];
   const seenImages = new Set();
@@ -1426,9 +1317,14 @@ async function capturePage(root = findRoot(), sourceUrl = location.href, sourceC
     const fallback = textOf(root);
     if (fallback) blocks.unshift({ type: "paragraph", text: fallback });
   }
-  const content = globalThis.XToXhsMarkdown.blocksToMarkdown(blocks, { includeImages: false });
+  const documentTitle = sourceCandidate?.title
+    || textOf(root.querySelector?.('[data-testid="twitter-article-title"], [data-testid="articleTitle"], [data-testid="longformTitle"]'))
+    || blocks.find((block) => block.type === "heading" && block.level === 1)?.text
+    || "";
+  const normalizedBlocks = globalThis.XToXhsMarkdown.withoutRepeatedDocumentTitle(blocks, documentTitle);
+  const content = globalThis.XToXhsMarkdown.blocksToMarkdown(normalizedBlocks, { includeImages: false });
   if (!content) throw new Error("No content found. Please wait for the page to finish loading.");
-  const plainText = blocks
+  const plainText = normalizedBlocks
     .filter((block) => block.type !== "image")
     .map((block) => block.text || block.url || "")
     .filter(Boolean)
@@ -1444,15 +1340,16 @@ async function capturePage(root = findRoot(), sourceUrl = location.href, sourceC
     previewExcerpt: sourceCandidate.previewExcerpt || "",
     title: sourceCandidate.title || null,
     metrics: {},
-  } : articleMetadata(root, sourceHandle, blocks);
+  } : articleMetadata(root, sourceHandle, normalizedBlocks);
   return {
     kind: "x-to-xhs.capture",
     version: 1,
-    sourceUrl,
+    contentType: sourceCandidate?.contentType || contentCandidateFromPage()?.contentType || "article",
+    sourceUrl: expectedSourceUrl || normalizedSourceUrl(sourceUrl),
     ...metadata,
     content,
     plainText,
-    blocks,
+    blocks: normalizedBlocks,
   };
 }
 
@@ -1476,50 +1373,16 @@ function currentPageContext() {
 }
 
 addRuntimeMessageListener((message, sender, sendResponse) => {
-  if (message?.type !== "get-current-context") return;
-  try {
-    sendResponse(currentPageContext());
-  } catch (error) {
-    sendResponse({ ok: false, error: error.message || "无法读取当前 X 页面上下文。" });
-  }
-});
-
-addRuntimeMessageListener((message, sender, sendResponse) => {
   if (message?.type !== "capture-x") return;
   capturePage()
-    .then((capture) => {
-      chrome.runtime.sendMessage({ type: "capture-completed", sourceUrl: capture.sourceUrl }).catch(() => {});
-      sendResponse(capture);
-    })
+    .then(sendResponse)
     .catch((error) => sendResponse({ error: error.message || "Failed to read the content." }));
-  return true;
-});
-
-addRuntimeMessageListener((message, sender, sendResponse) => {
-  if (message?.type !== "capture-current-for-sidepanel") return;
-  capturePage()
-    .then((capture) => { chrome.runtime.sendMessage({ type: "capture-completed", sourceUrl: capture.sourceUrl }).catch(() => {}); sendResponse(capture); })
-    .catch((error) => sendResponse({ error: error.message || "Failed to read the current X page." }));
   return true;
 });
 
 addRuntimeMessageListener((message, sender, sendResponse) => {
   if (message?.type !== "x-to-md-ready") return;
   sendResponse({ ok: true, revision: CONTENT_SCRIPT_REVISION });
-});
-
-addRuntimeMessageListener((message, sender, sendResponse) => {
-  if (message?.type !== "toggle-candidate-overlay") return;
-  toggleCandidateOverlay()
-    .then(sendResponse)
-    .catch((error) => sendResponse({ error: error.message || "Could not open the candidate collection." }));
-  return true;
-});
-
-addRuntimeMessageListener((message, sender, sendResponse) => {
-  if (message?.type !== "toggle-import-panel") return;
-  toggleImportPanel();
-  sendResponse({ ok: true });
 });
 
 globalThis.__xToMdContentScript = {

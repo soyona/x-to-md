@@ -39,5 +39,19 @@
       .trim();
   }
 
-  globalThis.XToXhsMarkdown = { blocksToMarkdown };
+  function withoutRepeatedDocumentTitle(blocks = [], title = "") {
+    const normalizedTitle = String(title).replace(/\s+/gu, " ").trim();
+    if (!normalizedTitle) return [...blocks];
+    let titleSeen = false;
+    return blocks.filter((block) => {
+      const blockTitle = String(block?.text || "").replace(/\s+/gu, " ").trim();
+      const isDocumentTitle = block?.type === "heading" && Number(block.level || 1) === 1 && blockTitle === normalizedTitle;
+      if (!isDocumentTitle) return true;
+      if (titleSeen) return false;
+      titleSeen = true;
+      return true;
+    });
+  }
+
+  globalThis.XToXhsMarkdown = { blocksToMarkdown, withoutRepeatedDocumentTitle };
 })();
