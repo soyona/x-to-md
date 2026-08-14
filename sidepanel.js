@@ -89,6 +89,36 @@ function documentIcon() {
   return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 2.5h8.8l3.2 3.2v13.8A2.5 2.5 0 0 1 16 22H6.5A2.5 2.5 0 0 1 4 19.5V5A2.5 2.5 0 0 1 6.5 2.5zm8 2H6.5a.5.5 0 0 0-.5.5v14.5a.5.5 0 0 0 .5.5H16a.5.5 0 0 0 .5-.5V6.5h-2z"/><path d="M9.2 9.1 7.4 12l1.8 2.9 1.5-.9-1.2-2 1.2-2zm5.6 0-1.5.9 1.2 2-1.2 2 1.5.9 1.8-2.9z"/></svg>';
 }
 
+function readingRemoveIcon() {
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" aria-hidden="true"><path d="M3.5 6h14l-1.7 12H5.2L3.5 6zM7 3.5h7M6.5 11h2.7l1.15 2h.3l1.15-2h2.7M16 8.5h5"/></svg>';
+}
+
+function openOriginalIcon() {
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" aria-hidden="true"><path d="M13 4h7v7M20 4l-9 9"/><path d="M18.5 13v5.5A1.5 1.5 0 0 1 17 20H5.5A1.5 1.5 0 0 1 4 18.5V7a1.5 1.5 0 0 1 1.5-1.5H11"/></svg>';
+}
+
+function editTagIcon() {
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" aria-hidden="true"><path d="m4 20 4.2-1 10.55-10.55a2.12 2.12 0 0 0-3-3L5.2 16 4 20zM14.5 6.7l2.8 2.8"/></svg>';
+}
+
+function usageStatusIcon(isUsed) {
+  return isUsed
+    ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="m8.3 12.2 2.4 2.4 5-5.2"/></svg>'
+    : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="m9 9 6 6M15 9l-6 6"/></svg>';
+}
+
+function deleteIcon() {
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" aria-hidden="true"><path d="M5 7h14M9 4h6l1 3M7 7l.8 13h8.4L17 7M10 10v7M14 10v7"/></svg>';
+}
+
+function previewMarkdownIcon() {
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" aria-hidden="true"><path d="M5 2.5h9l4 4v15H5zM14 2.5v4h4M7.5 14s1.7-3 4.5-3 4.5 3 4.5 3-1.7 3-4.5 3-4.5-3-4.5-3z"/><circle cx="12" cy="14" r="1.25"/></svg>';
+}
+
+function menuItemIcon(icon) {
+  return `<span class="asset-menu-item-icon" aria-hidden="true">${icon}</span>`;
+}
+
 function readingItem(item) {
   const authorName = item.authorName || item.authorHandle || "未知作者";
   const profileUrl = authorProfileUrl(item.authorHandle);
@@ -97,7 +127,7 @@ function readingItem(item) {
     ? `<span class="article-card-media"><img src="${escapeHtml(item.coverImageUrl)}" alt="" /><span class="article-card-badge">𝕏 Article</span></span>`
     : "";
   const excerpt = item.previewExcerpt ? `<span class="article-card-excerpt">${escapeHtml(item.previewExcerpt)}</span>` : "";
-  return `<article class="article-post" data-source-url="${escapeHtml(normalizedSourceUrl(item.sourceUrl))}"><a class="article-avatar" href="${escapeHtml(profileUrl)}" target="_blank" rel="noreferrer" aria-label="打开 ${escapeHtml(authorName)} 的 X 主页">${avatar}</a><div class="article-content"><div class="article-author"><strong>${escapeHtml(authorName)}${item.authorVerified ? verifiedBadge() : ""}</strong><span class="article-handle">${escapeHtml(item.authorHandle || "")}</span><span class="article-date">· ${escapeHtml(formatDate(item.publishedAt))}</span></div><a class="article-card" data-action="reading-open" href="${escapeHtml(item.sourceUrl)}" target="_blank" rel="noreferrer">${cover}<span class="article-card-body"><strong>${escapeHtml(item.title || "Untitled Article")}</strong>${excerpt}</span></a><footer class="article-engagement"><span class="reading-added-at">加入于 ${escapeHtml(formatDate(item.addedAt))}</span><button class="article-inbox-remove" data-action="reading-remove" data-url="${escapeHtml(item.sourceUrl)}" type="button" aria-label="从待读移除" title="从待读移除"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 5.5h17l-2 12.5H5.5L3.5 5.5zm2.7 2 1.1 7h9.4l1.1-7H6.2zM8 3h8v2H8z"/><path d="M9 11h6v2H9z"/></svg></button></footer></div></article>`;
+  return `<article class="article-post" data-source-url="${escapeHtml(normalizedSourceUrl(item.sourceUrl))}"><a class="article-avatar" href="${escapeHtml(profileUrl)}" target="_blank" rel="noreferrer" aria-label="打开 ${escapeHtml(authorName)} 的 X 主页">${avatar}</a><div class="article-content"><div class="article-author"><strong>${escapeHtml(authorName)}${item.authorVerified ? verifiedBadge() : ""}</strong><span class="article-handle">${escapeHtml(item.authorHandle || "")}</span><span class="article-date">· ${escapeHtml(formatDate(item.publishedAt))}</span></div><a class="article-card" data-action="reading-open" href="${escapeHtml(item.sourceUrl)}" target="_blank" rel="noreferrer">${cover}<span class="article-card-body"><strong>${escapeHtml(item.title || "Untitled Article")}</strong>${excerpt}</span></a><footer class="article-engagement"><span class="reading-added-at">加入于 ${escapeHtml(formatDate(item.addedAt))}</span><button class="article-inbox-remove" data-action="reading-remove" data-url="${escapeHtml(item.sourceUrl)}" type="button" aria-label="从待读移除" title="从待读移除">${readingRemoveIcon()}</button></footer></div></article>`;
 }
 
 function renderReadingList() {
@@ -128,11 +158,11 @@ function assetItem(asset) {
   const tags = (asset.tags || []).map((tag) => `<span class="asset-tag"><span>${escapeHtml(tag)}</span><button data-action="asset-remove-tag" data-id="${escapeHtml(asset.id)}" data-tag="${escapeHtml(tag)}" type="button" aria-label="删除标签 ${escapeHtml(tag)}">×</button></span>`).join("");
   const tagEditor = state.assetTagEditor === asset.id ? `<div class="asset-tag-editor asset-menu-editor"><input data-asset-tag-input data-id="${escapeHtml(asset.id)}" type="text" placeholder="输入标签后回车" aria-label="添加标签"><button class="asset-icon-button" data-action="asset-add-tag" data-id="${escapeHtml(asset.id)}" type="button" aria-label="确认添加标签">${addIcon()}</button></div>` : "";
   const editorOpen = state.assetTagEditor === asset.id;
-  const menu = state.assetMenu === asset.id ? `<div class="asset-menu ${state.assetMenuPlacement === "up" ? "is-up" : ""}" ${editorOpen ? 'role="dialog" aria-label="素材编辑"' : 'role="menu"'}><a href="${escapeHtml(asset.sourceUrl)}" target="_blank" rel="noreferrer" ${editorOpen ? "" : 'role="menuitem"'}>打开原文</a><button data-action="asset-tag-editor" data-id="${escapeHtml(asset.id)}" type="button" ${editorOpen ? "" : 'role="menuitem"'}>编辑标签</button>${tagEditor}<button data-action="asset-toggle-used" data-id="${escapeHtml(asset.id)}" type="button" ${editorOpen ? "" : 'role="menuitem"'}>${asset.usageStatus === "used" ? "标记为未使用" : "标记为已使用"}</button><button data-action="asset-delete" data-id="${escapeHtml(asset.id)}" type="button" ${editorOpen ? "" : 'role="menuitem"'}>删除素材</button></div>` : "";
+  const menu = state.assetMenu === asset.id ? `<div class="asset-menu ${state.assetMenuPlacement === "up" ? "is-up" : ""}" ${editorOpen ? 'role="dialog" aria-label="素材编辑"' : 'role="menu"'}><a href="${escapeHtml(asset.sourceUrl)}" target="_blank" rel="noreferrer" ${editorOpen ? "" : 'role="menuitem"'}>${menuItemIcon(openOriginalIcon())}<span>打开原文</span></a><button data-action="asset-tag-editor" data-id="${escapeHtml(asset.id)}" type="button" ${editorOpen ? "" : 'role="menuitem"'}>${menuItemIcon(editTagIcon())}<span>编辑标签</span></button>${tagEditor}<button data-action="asset-toggle-used" data-id="${escapeHtml(asset.id)}" type="button" ${editorOpen ? "" : 'role="menuitem"'}>${menuItemIcon(usageStatusIcon(asset.usageStatus !== "used"))}<span>${asset.usageStatus === "used" ? "标记为未使用" : "标记为已使用"}</span></button><button class="is-destructive" data-action="asset-delete" data-id="${escapeHtml(asset.id)}" type="button" ${editorOpen ? "" : 'role="menuitem"'}>${menuItemIcon(deleteIcon())}<span>删除素材</span></button></div>` : "";
   const cover = asset.coverImageUrl
     ? `<a class="article-card-media asset-card-media" href="${escapeHtml(asset.sourceUrl)}" target="_blank" rel="noreferrer"><img src="${escapeHtml(asset.coverImageUrl)}" alt="" /></a>`
     : `<span class="article-card-media asset-card-media asset-card-placeholder" aria-hidden="true">${documentIcon()}</span>`;
-  return `<article class="article-post asset-post"><a class="article-avatar asset-avatar" href="${escapeHtml(profileUrl)}" target="_blank" rel="noreferrer" aria-label="打开 ${escapeHtml(authorName)} 的 X 主页">${avatar}</a><div class="article-content"><div class="article-author asset-author"><strong>${escapeHtml(authorName)}${asset.authorVerified ? verifiedBadge() : ""}</strong><span class="article-handle">${escapeHtml(asset.authorHandle || "")}</span><span class="article-date">· ${escapeHtml(formatDate(asset.publishedAt))}</span><div class="asset-menu-anchor"><button class="article-more" data-action="asset-menu" data-id="${escapeHtml(asset.id)}" type="button" aria-label="素材操作" aria-expanded="${state.assetMenu === asset.id}">${moreIcon()}</button>${menu}</div></div><div class="article-card asset-card">${cover}<div class="article-card-body asset-card-body"><a class="asset-title" href="${escapeHtml(asset.sourceUrl)}" target="_blank" rel="noreferrer">${escapeHtml(asset.title)}</a>${tags ? `<div class="asset-tags-row" aria-label="标签">${tags}</div>` : ""}</div></div><footer class="asset-footer"><span class="asset-usage-status ${asset.usageStatus === "used" ? "is-used" : ""}">${asset.usageStatus === "used" ? "已使用" : "未使用"}</span><button class="asset-preview-action" data-action="asset-preview" data-id="${escapeHtml(asset.id)}" type="button">预览 Markdown</button></footer></div></article>`;
+  return `<article class="article-post asset-post"><a class="article-avatar asset-avatar" href="${escapeHtml(profileUrl)}" target="_blank" rel="noreferrer" aria-label="打开 ${escapeHtml(authorName)} 的 X 主页">${avatar}</a><div class="article-content"><div class="article-author asset-author"><strong>${escapeHtml(authorName)}${asset.authorVerified ? verifiedBadge() : ""}</strong><span class="article-handle">${escapeHtml(asset.authorHandle || "")}</span><span class="article-date">· ${escapeHtml(formatDate(asset.publishedAt))}</span><div class="asset-menu-anchor"><button class="article-more" data-action="asset-menu" data-id="${escapeHtml(asset.id)}" type="button" aria-label="素材操作" aria-expanded="${state.assetMenu === asset.id}">${moreIcon()}</button>${menu}</div></div><div class="article-card asset-card">${cover}<div class="article-card-body asset-card-body"><a class="asset-title" href="${escapeHtml(asset.sourceUrl)}" target="_blank" rel="noreferrer">${escapeHtml(asset.title)}</a>${tags ? `<div class="asset-tags-row" aria-label="标签">${tags}</div>` : ""}</div></div><footer class="asset-footer"><span class="asset-usage-status ${asset.usageStatus === "used" ? "is-used" : ""}">${asset.usageStatus === "used" ? "已使用" : "未使用"}</span><button class="asset-preview-action" data-action="asset-preview" data-id="${escapeHtml(asset.id)}" type="button">${previewMarkdownIcon()}<span>预览 Markdown</span></button></footer></div></article>`;
 }
 
 function renderAssets() {

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">x-to-md</title>
+  <desc id="desc">Official X mark combined with a smaller Article document</desc>
+  <rect x="6" y="6" width="116" height="116" rx="28" fill="#0f1419"/>
+  <g color="#fff" transform="translate(7 16) scale(4)">
+    <path fill="currentColor" d="M21.742 21.75l-7.563-11.179 7.056-8.321h-2.456l-5.691 6.714-4.54-6.714H2.359l7.29 10.776L2.25 21.75h2.456l6.035-7.118 4.818 7.118h6.191-.008zM7.739 3.818L18.81 20.182h-2.447L5.29 3.818h2.447z"/>
+    <g fill="#0f1419" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21.35 11.25h4.2l3.3 3.3v5.475a1.05 1.05 0 0 1-1.05 1.05h-6.45z" stroke-width="1.35"/>
+      <path d="M25.55 11.25v3.3h3.3" fill="none" stroke-width="1.35"/>
+      <path d="M23.35 16.8h3.55M23.35 19.1h3.55" fill="none" stroke-width=".78"/>
+    </g>
+  </g>
+</svg>

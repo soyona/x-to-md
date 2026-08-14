@@ -32,11 +32,17 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .main-column, .view { min-width: 0; flex: 1; }
 
 .tabbar { position: sticky; top: 0; display: flex; width: 56px; min-height: 100vh; flex: 0 0 56px; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px; border-right: 1px solid var(--x-border); background: #fff; }
+.brand-mark { display: grid; width: 48px; height: 48px; flex: 0 0 48px; place-items: center; color: var(--x-primary); }
+.brand-mark img { display: block; width: 30px; height: 30px; }
 .tab { position: relative; display: grid; width: 48px; height: 48px; flex: 0 0 48px; place-items: center; padding: 0; border: 0; border-radius: var(--twitter-radius-pill); background: transparent; color: var(--x-secondary); }
-.tab:hover { background: var(--x-hover); }
-.tab svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.9; }
-.tab.is-active { background: rgba(29, 155, 240, .1); color: var(--x-blue); }
-.tab.is-active svg { fill: currentColor; stroke: none; }
+.tab:hover { background: var(--x-hover); color: var(--x-primary); }
+.tab .nav-icon { width: 26px; height: 26px; }
+.tab .nav-icon-outline { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.9; }
+.tab .nav-icon-filled { display: none; fill: currentColor; stroke: none; }
+.tab.is-active { background: transparent; color: var(--x-blue); }
+.tab.is-active:hover { background: var(--x-hover); color: var(--x-blue); }
+.tab.is-active .nav-icon-outline { display: none; }
+.tab.is-active .nav-icon-filled { display: block; }
 
 .status { position: fixed; right: 16px; bottom: 16px; z-index: 20; max-width: calc(100% - 88px); margin: 0; border-radius: 8px; color: transparent; pointer-events: none; }
 .status:not(:empty) { padding: 12px 16px; background: var(--x-blue); color: #fff; font-size: 14px; font-weight: 700; }
@@ -76,7 +82,7 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .article-engagement { display: flex; min-height: 34px; align-items: center; justify-content: space-between; margin-top: 4px; color: var(--x-secondary); }
 .reading-added-at { font-size: 13px; }
 .article-inbox-remove { display: grid; width: 34px; height: 34px; place-items: center; padding: 0; border: 1px solid var(--x-blue); border-radius: var(--twitter-radius-pill); background: #fff; color: var(--x-blue); }
-.article-inbox-remove svg { width: 18.75px; height: 18.75px; fill: currentColor; }
+.article-inbox-remove svg { width: 18.75px; height: 18.75px; }
 .article-inbox-remove:hover { border-color: var(--x-error); background: var(--twitter-color-destructive-hover); color: var(--x-error); }
 
 .author-cell { display: flex; align-items: flex-start; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--x-border); background: #fff; }
@@ -112,12 +118,16 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .asset-footer { display: flex; min-height: 36px; align-items: center; gap: 8px; margin-top: 8px; }
 .asset-usage-status { color: var(--x-secondary); font-size: 13px; font-weight: 700; }
 .asset-usage-status.is-used { color: #00ba7c; }
-.asset-preview-action { min-height: 34px; margin-left: auto; padding: 0 14px; border: 0; border-radius: var(--twitter-radius-pill); background: transparent; color: var(--x-blue); font-size: 14px; font-weight: 700; }
+.asset-preview-action { display: inline-flex; min-height: 34px; align-items: center; gap: 6px; margin-left: auto; padding: 0 14px; border: 0; border-radius: var(--twitter-radius-pill); background: transparent; color: var(--x-blue); font-size: 14px; font-weight: 700; }
+.asset-preview-action svg { width: 18.75px; height: 18.75px; flex: 0 0 18.75px; }
 .asset-preview-action:hover { background: rgba(29, 155, 240, .1); }
 .asset-menu { position: absolute; top: 34px; right: -4px; z-index: 5; min-width: 184px; overflow: hidden; border: 1px solid var(--x-border); border-radius: 12px; background: #fff; box-shadow: 0 4px 12px rgba(15, 20, 25, .15); }
 .asset-menu.is-up { top: auto; bottom: 26px; }
 .asset-menu button, .asset-menu a { display: flex; width: 100%; min-height: 44px; align-items: center; padding: 0 16px; border: 0; background: #fff; color: var(--x-primary); font-size: 15px; font-weight: 700; text-align: left; text-decoration: none; }
 .asset-menu button:hover, .asset-menu a:hover { background: var(--x-hover); }
+.asset-menu-item-icon { display: grid; width: 24px; height: 24px; flex: 0 0 24px; margin-right: 12px; place-items: center; color: currentColor; }
+.asset-menu-item-icon svg { display: block; width: 24px; height: 24px; }
+.asset-menu .is-destructive { color: var(--x-error); }
 
 .asset-dialog-backdrop { position: fixed; z-index: 30; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(15, 20, 25, .4); }
 .asset-dialog { width: min(320px, 100%); padding: 24px; border-radius: 16px; background: #fff; box-shadow: 0 8px 28px rgba(15, 20, 25, .2); }

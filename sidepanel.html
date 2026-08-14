@@ -9,16 +9,28 @@
   <body>
     <main id="app" class="inbox" aria-label="X to MD Article 工作区">
       <nav class="tabbar" aria-label="Article 工作区导航">
+        <span class="brand-mark" aria-label="x-to-md" title="x-to-md">
+          <img src="assets/icons/x-to-md-entry.svg" alt="" />
+        </span>
         <button type="button" data-view="readingList" class="tab is-active" aria-label="待读" title="待读">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 5.5h17l-2 12.5H5.5L3.5 5.5zm2.7 2 1.1 7h9.4l1.1-7H6.2zM8 3h8v2H8z"/><path d="M9 11h6v2H9z"/></svg>
+          <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <g class="nav-icon-outline"><path d="M4 6h16l-1.8 12H5.8L4 6zM8 3.5h8M7 11h3l1.2 2h1.6l1.2-2h3"/></g>
+            <path class="nav-icon-filled" fill-rule="evenodd" d="M8 3h8v2H8V3zM3.5 5.5h17l-2 12.5H5.5l-2-12.5zm3.15 5h3.9l1.1 2h.7l1.1-2h3.9l-.88 5.5H7.53l-.88-5.5z"/>
+          </svg>
           <span class="sr-only">待读</span>
         </button>
         <button type="button" data-view="assets" class="tab" aria-label="素材库" title="素材库">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3.75h12v16.5l-6-3.75-6 3.75z"/></svg>
+          <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path class="nav-icon-outline" d="M6 3.75h12v16.5l-6-3.75-6 3.75V3.75z"/>
+            <path class="nav-icon-filled" d="M6 3.75h12v16.5l-6-3.75-6 3.75V3.75z"/>
+          </svg>
           <span class="sr-only">素材库</span>
         </button>
         <button type="button" data-view="authors" class="tab" aria-label="作者" title="作者">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4c-1.105 0-2 .9-2 2s.895 2 2 2 2-.9 2-2-.895-2-2-2zM6 6c0-2.21 1.791-4 4-4s4 1.79 4 4-1.791 4-4 4-4-1.79-4-4zm-2.349 13h12.698c-.337-1.8-1.023-3.21-1.945-4.19C13.318 13.65 11.838 13 10 13s-3.317.65-4.404 1.81c-.922.98-1.608 2.39-1.945 4.19zm.486-5.56C5.627 11.85 7.648 11 10 11s4.373.85 5.863 2.44c1.477 1.58 2.366 3.8 2.632 6.46l.11 1.1H1.395l.11-1.1c.266-2.66 1.155-4.88 2.632-6.46zM20 8h3v2h-3v3h-2v-3h-3V8h3V5h2z"/></svg>
+          <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <g class="nav-icon-outline"><circle cx="8.5" cy="8" r="3"/><circle cx="16.5" cy="9" r="2.5"/><path d="M2.75 20c.3-4.1 2.2-6.25 5.75-6.25S13.95 15.9 14.25 20M14 14.75c.7-.5 1.55-.75 2.5-.75 2.95 0 4.35 1.9 4.75 5.5"/></g>
+            <g class="nav-icon-filled"><circle cx="8.5" cy="8" r="3.25"/><circle cx="16.5" cy="9" r="2.75"/><path d="M2.5 20.5c.25-4.55 2.2-6.75 6-6.75s5.75 2.2 6 6.75h-12zM14.2 15.15c.65-.75 1.45-1.15 2.55-1.15 3.1 0 4.5 2.05 4.75 6.5h-5.2c-.18-2.1-.85-3.9-2.1-5.35z"/></g>
+          </svg>
           <span class="sr-only">作者</span>
         </button>
       </nav>

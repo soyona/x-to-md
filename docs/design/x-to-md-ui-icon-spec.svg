@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1020" viewBox="0 0 1440 1020">
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #0f1419; }
+    .title { font-size: 30px; font-weight: 700; }
+    .section { font-size: 20px; font-weight: 700; }
+    .label { font-size: 14px; fill: #536471; }
+    .small { font-size: 12px; fill: #536471; }
+    .rule { stroke: #eff3f4; stroke-width: 1; }
+    .icon { width: 32px; height: 32px; color: #0f1419; }
+    .muted { color: #536471; }
+    .active { color: #1d9bf0; }
+  </style>
+  <rect width="1440" height="1020" fill="#fff"/>
+
+  <text class="title" x="48" y="54">x-to-md UI Icon System</text>
+  <text class="label" x="48" y="80">Final · 24×24 semantic icon source · X light</text>
+
+  <text class="section" x="48" y="130">Brand locked</text>
+  <rect x="48" y="154" width="112" height="112" rx="24" fill="#0f1419"/>
+  <g transform="translate(58 166) scale(3.15)" fill="#fff">
+    <path d="M21.742 21.75l-7.563-11.179 7.056-8.321h-2.456l-5.691 6.714-4.54-6.714H2.359l7.29 10.776L2.25 21.75h2.456l6.035-7.118 4.818 7.118h6.191-.008zM7.739 3.818L18.81 20.182h-2.447L5.29 3.818h2.447z"/>
+    <path d="M21.35 11.25h4.2l3.3 3.3v5.475a1.05 1.05 0 0 1-1.05 1.05h-6.45z" fill="none" stroke="#fff" stroke-linejoin="round" stroke-width="1.35"/>
+    <path d="M25.55 11.25v3.3h3.3" fill="none" stroke="#fff" stroke-linejoin="round" stroke-width="1.35"/>
+    <path d="M23.35 16.8h3.55M23.35 19.1h3.55" fill="none" stroke="#fff" stroke-linecap="round" stroke-width=".78"/>
+  </g>
+  <g transform="translate(220 174) scale(3)" fill="#0f1419">
+    <path d="M21.742 21.75l-7.563-11.179 7.056-8.321h-2.456l-5.691 6.714-4.54-6.714H2.359l7.29 10.776L2.25 21.75h2.456l6.035-7.118 4.818 7.118h6.191-.008zM7.739 3.818L18.81 20.182h-2.447L5.29 3.818h2.447z"/>
+    <path d="M21.35 11.25h4.2l3.3 3.3v5.475a1.05 1.05 0 0 1-1.05 1.05h-6.45z" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="1.35"/>
+    <path d="M25.55 11.25v3.3h3.3" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="1.35"/>
+    <path d="M23.35 16.8h3.55M23.35 19.1h3.55" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width=".78"/>
+  </g>
+  <text class="label" x="48" y="290">Extension icon</text>
+  <text class="label" x="220" y="290">X page / Side Panel entry</text>
+  <text class="small" x="480" y="188">Official X path: immutable</text>
+  <text class="small" x="480" y="214">Article document: smaller, bottom aligned</text>
+  <text class="small" x="480" y="240">Formal sources: x-to-md-icon-source.svg · x-to-md-entry.svg</text>
+  <line class="rule" x1="48" y1="320" x2="1392" y2="320"/>
+
+  <text class="section" x="48" y="366">Navigation states</text>
+  <text class="label" x="230" y="366">Default</text><text class="label" x="430" y="366">Hover</text><text class="label" x="630" y="366">Active</text><text class="label" x="830" y="366">Focus visible</text>
+
+  <text class="label" x="48" y="420">Reading list</text>
+  <svg x="230" y="390" width="40" height="40" color="#536471"><use href="../../assets/icons/x-to-md-ui-icons.svg#nav-reading-outline"/></svg>
+  <circle cx="450" cy="410" r="25" fill="#eff3f4"/><svg x="430" y="390" width="40" height="40" color="#0f1419"><use href="../../assets/icons/x-to-md-ui-icons.svg#nav-reading-filled"/></svg>
+  <svg x="630" y="390" width="40" height="40" color="#1d9bf0"><use href="../../assets/icons/x-to-md-ui-icons.svg#nav-reading-filled"/></svg>
+  <circle cx="850" cy="410" r="27" fill="none" stroke="#1d9bf0" stroke-width="2"/><svg x="830" y="390" width="40" height="40" color="#536471"><use href="../../assets/icons/x-to-md-ui-icons.svg#nav-reading-outline"/></svg>
+
+  <text class="label" x="48" y="480">Library</text>
+  <svg x="230" y="450" width="40" height="40" color="#536471"><use href="../../assets/icons/x-to-md-ui-icons.svg#nav-library-outline"/></svg>
+  <circle cx="450" cy="470" r="25" fill="#eff3f4"/><svg x="430" y="450" width="40" height="40" color="#0f1419"><use href="../../assets/icons/x-to-md-ui-icons.svg#nav-library-filled"/></svg>
+  <svg x="630" y="450" width="40" height="40" color="#1d9bf0"><use href="../../assets/icons/x-to-md-ui-icons.svg#nav-library-filled"/></svg>
+  <circle cx="850" cy="470" r="27" fill="none" stroke="#1d9bf0" stroke-width="2"/><svg x="830" y="450" width="40" height="40" color="#536471"><use href="../../assets/icons/x-to-md-ui-icons.svg#nav-library-outline"/></svg>
+
+  <text class="label" x="48" y="540">Authors</text>
+  <svg x="230" y="510" width="40" height="40" color="#536471"><use href="../../assets/icons/x-to-md-ui-icons.svg#nav-authors-outline"/></svg>
+  <circle cx="450" cy="530" r="25" fill="#eff3f4"/><svg x="430" y="510" width="40" height="40" color="#0f1419"><use href="../../assets/icons/x-to-md-ui-icons.svg#nav-authors-filled"/></svg>
+  <svg x="630" y="510" width="40" height="40" color="#1d9bf0"><use href="../../assets/icons/x-to-md-ui-icons.svg#nav-authors-filled"/></svg>
+  <circle cx="850" cy="530" r="27" fill="none" stroke="#1d9bf0" stroke-width="2"/><svg x="830" y="510" width="40" height="40" color="#536471"><use href="../../assets/icons/x-to-md-ui-icons.svg#nav-authors-outline"/></svg>
+  <text class="small" x="1010" y="420">Default #536471 · outline</text>
+  <text class="small" x="1010" y="450">Hover #0f1419 · neutral circle</text>
+  <text class="small" x="1010" y="480">Active #1d9bf0 · filled</text>
+  <text class="small" x="1010" y="510">Focus visible · 2px blue ring</text>
+  <line class="rule" x1="48" y1="580" x2="1392" y2="580"/>
+
+  <text class="section" x="48" y="626">X page menu actions</text>
+  <g color="#0f1419">
+    <svg x="60" y="650" width="40" height="40"><use href="../../assets/icons/x-to-md-ui-icons.svg#reading-add"/></svg><text class="label" x="48" y="714">Add reading</text>
+    <svg x="205" y="650" width="40" height="40"><use href="../../assets/icons/x-to-md-ui-icons.svg#reading-remove"/></svg><text class="label" x="180" y="714">Remove reading</text>
+    <svg x="370" y="650" width="40" height="40"><use href="../../assets/icons/x-to-md-ui-icons.svg#library-add"/></svg><text class="label" x="350" y="714">Save library</text>
+    <svg x="530" y="650" width="40" height="40"><use href="../../assets/icons/x-to-md-ui-icons.svg#library-remove"/></svg><text class="label" x="500" y="714">Remove library</text>
+    <svg x="700" y="650" width="40" height="40"><use href="../../assets/icons/x-to-md-ui-icons.svg#article-preview"/></svg><text class="label" x="670" y="714">Preview Article</text>
+    <svg x="875" y="650" width="40" height="40"><use href="../../assets/icons/x-to-md-ui-icons.svg#markdown-copy"/></svg><text class="label" x="850" y="714">Copy Markdown</text>
+    <svg x="1040" y="650" width="40" height="40"><use href="../../assets/icons/x-to-md-ui-icons.svg#author-add"/></svg><text class="label" x="1020" y="714">Add author</text>
+    <svg x="1195" y="650" width="40" height="40"><use href="../../assets/icons/x-to-md-ui-icons.svg#author-remove"/></svg><text class="label" x="1165" y="714">Remove author</text>
+  </g>
+  <line class="rule" x1="48" y1="746" x2="1392" y2="746"/>
+
+  <text class="section" x="48" y="792">Side Panel actions</text>
+  <g color="#0f1419">
+    <svg x="60" y="816" width="40" height="40"><use href="../../assets/icons/x-to-md-ui-icons.svg#open-original"/></svg><text class="label" x="45" y="880">Open original</text>
+    <svg x="195" y="816" width="40" height="40"><use href="../../assets/icons/x-to-md-ui-icons.svg#edit-tags"/></svg><text class="label" x="180" y="880">Edit tags</text>
+    <svg x="330" y="816" width="40" height="40"><use href="../../assets/icons/x-to-md-ui-icons.svg#mark-used"/></svg><text class="label" x="310" y="880">Mark used</text>
+    <svg x="465" y="816" width="40" height="40"><use href="../../assets/icons/x-to-md-ui-icons.svg#mark-unused"/></svg><text class="label" x="435" y="880">Mark unused</text>
+    <svg x="600" y="816" width="40" height="40" color="#f4212e"><use href="../../assets/icons/x-to-md-ui-icons.svg#delete"/></svg><text class="label" x="598" y="880">Delete</text>
+    <svg x="735" y="816" width="40" height="40"><use href="../../assets/icons/x-to-md-ui-icons.svg#search"/></svg><text class="label" x="730" y="880">Search</text>
+    <svg x="870" y="816" width="40" height="40"><use href="../../assets/icons/x-to-md-ui-icons.svg#more"/></svg><text class="label" x="875" y="880">More</text>
+    <svg x="1005" y="816" width="40" height="40"><use href="../../assets/icons/x-to-md-ui-icons.svg#add"/></svg><text class="label" x="1010" y="880">Add</text>
+    <svg x="1140" y="816" width="40" height="40"><use href="../../assets/icons/x-to-md-ui-icons.svg#close"/></svg><text class="label" x="1138" y="880">Close</text>
+    <svg x="1275" y="816" width="40" height="40"><use href="../../assets/icons/x-to-md-ui-icons.svg#copy"/></svg><text class="label" x="1278" y="880">Copy</text>
+  </g>
+  <line class="rule" x1="48" y1="912" x2="1392" y2="912"/>
+  <text class="small" x="48" y="954">24×24 viewBox</text><text class="small" x="205" y="954">1.9px rounded stroke</text><text class="small" x="405" y="954">currentColor</text><text class="small" x="555" y="954">24px menu slot</text><text class="small" x="720" y="954">12px icon–label gap</text>
+  <text class="small" x="48" y="986">Required source: assets/icons/x-to-md-ui-icons.svg · No emoji · No ad-hoc inline icon · Add missing semantics to the library before use</text>
+</svg>

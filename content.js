@@ -575,11 +575,15 @@ function removeArticleMoreMenu() {
   articleMoreMenuState = null;
 }
 
-function articleActionsEntryIconPaths() {
-  return [
-    "M6.5 2.5h8.8l3.2 3.2v13.8A2.5 2.5 0 0 1 16 22H6.5A2.5 2.5 0 0 1 4 19.5V5A2.5 2.5 0 0 1 6.5 2.5zm8 2H6.5a.5.5 0 0 0-.5.5v14.5a.5.5 0 0 0 .5.5H16a.5.5 0 0 0 .5-.5V6.5h-2z",
-    "M9.2 9.1 7.4 12l1.8 2.9 1.5-.9-1.2-2 1.2-2zm5.6 0-1.5.9 1.2 2-1.2 2 1.5.9 1.8-2.9z",
-  ];
+function articleActionsEntryIconMarkup() {
+  return `
+    <path d="M21.742 21.75l-7.563-11.179 7.056-8.321h-2.456l-5.691 6.714-4.54-6.714H2.359l7.29 10.776L2.25 21.75h2.456l6.035-7.118 4.818 7.118h6.191-.008zM7.739 3.818L18.81 20.182h-2.447L5.29 3.818h2.447z"></path>
+    <g fill="var(--x-to-md-document-background, #fff)" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21.35 11.25h4.2l3.3 3.3v5.475a1.05 1.05 0 0 1-1.05 1.05h-6.45z" stroke-width="1.35"></path>
+      <path d="M25.55 11.25v3.3h3.3" fill="none" stroke-width="1.35"></path>
+      <path d="M23.35 16.8h3.55M23.35 19.1h3.55" fill="none" stroke-width=".78"></path>
+    </g>
+  `;
 }
 
 function articleMoreButtonFromRoot(root) {
@@ -684,21 +688,18 @@ function injectArticleActionsEntry(root, targetMoreButton = null) {
   const buttonRect = geometryButton.getBoundingClientRect();
   const sourceIcon = geometryButton.querySelector("svg");
   const iconRect = sourceIcon?.getBoundingClientRect();
+  const pageBackgroundColor = getComputedStyle(document.body).backgroundColor || "#fff";
   const entryStyle = document.createElement("style");
   entryStyle.textContent = `
-    :host { display: block; }
+    :host { display: block; --x-to-md-document-background: ${pageBackgroundColor}; }
     button { display: flex; width: ${Math.round(buttonRect.width) || 34}px; height: ${Math.round(buttonRect.height) || 34}px; margin: 0; padding: 0; border: 0; border-radius: 9999px; align-items: center; justify-content: center; background: transparent; color: ${getComputedStyle(geometryButton).color}; cursor: pointer; transition: background-color 0.2s ease; }
     button:hover, button:focus-visible, button[aria-expanded="true"] { background-color: rgba(83, 100, 113, 0.1); outline: none; }
-    svg { display: block; width: ${Math.round(iconRect?.width) || 20}px; height: ${Math.round(iconRect?.height) || 20}px; fill: currentColor; }
+    svg { display: block; width: ${Math.max(Math.round(iconRect?.width) || 20, 24)}px; height: ${Math.round(iconRect?.height) || 20}px; fill: currentColor; }
   `;
   const entryIcon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  entryIcon.setAttribute("viewBox", "0 0 24 24");
+  entryIcon.setAttribute("viewBox", "0 0 30 24");
   entryIcon.setAttribute("aria-hidden", "true");
-  articleActionsEntryIconPaths().forEach((pathData) => {
-    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.setAttribute("d", pathData);
-    entryIcon.append(path);
-  });
+  entryIcon.innerHTML = articleActionsEntryIconMarkup();
   entry.append(entryIcon);
   entry.addEventListener("click", (event) => {
     event.preventDefault();
@@ -851,20 +852,26 @@ function setMenuRowIcon(row, icon) {
   row.prepend(iconSlot);
 }
 
-function readingTrayIcon() {
-  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 5.5h17l-2 12.5H5.5L3.5 5.5zm2.7 2 1.1 7h9.4l1.1-7H6.2zM8 3h8v2H8z"></path><path d="M9 11h6v2H9z"></path></svg>';
+function readingTrayIcon(removing = false) {
+  const stateMark = removing
+    ? '<path d="M16 8.5h5"></path>'
+    : '<path d="M18.5 6v5M16 8.5h5"></path>';
+  return `<svg viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9"><path d="M3.5 6h14l-1.7 12H5.2L3.5 6zM7 3.5h7M6.5 11h2.7l1.15 2h.3l1.15-2h2.7"></path>${stateMark}</g></svg>`;
 }
 
-function libraryBookmarkIcon() {
-  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3.5A2.5 2.5 0 0 1 7.5 1h9A2.5 2.5 0 0 1 19 3.5V23l-7-4.5L5 23V3.5zm2.5 0v15.85l4.5-2.9 4.5 2.9V3.5a.5.5 0 0 0-.5-.5h-9a.5.5 0 0 0-.5.5z"></path></svg>';
+function libraryBookmarkIcon(removing = false) {
+  const stateMark = removing
+    ? '<path d="M16.5 8.5h5"></path>'
+    : '<path d="M19 6v5M16.5 8.5h5"></path>';
+  return `<svg viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9"><path d="M5 3.5A2.5 2.5 0 0 1 7.5 1h9A2.5 2.5 0 0 1 19 3.5V23l-7-4.5L5 23V3.5z"></path>${stateMark}</g></svg>`;
 }
 
 function copyTextIcon() {
-  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3.5h10A2.5 2.5 0 0 1 19.5 6v12A2.5 2.5 0 0 1 17 20.5H7A2.5 2.5 0 0 1 4.5 18V6A2.5 2.5 0 0 1 7 3.5zm0 2a.5.5 0 0 0-.5.5v12a.5.5 0 0 0 .5.5h10a.5.5 0 0 0 .5-.5V6a.5.5 0 0 0-.5-.5H7z"></path><path d="M8 8h8v1.75H8zm0 3.5h8v1.75H8zm0 3.5h5v1.75H8z"></path></svg>';
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9"><path d="M5 2.5h9l4 4V11M14 2.5v4h4M5 2.5v16h6"></path><rect x="10" y="10" width="8.5" height="9.5" rx="1.25"></rect><path d="M13 8h5.75A1.25 1.25 0 0 1 20 9.25V16"></path></g></svg>';
 }
 
 function markdownPreviewIcon() {
-  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 2.5h8.8l3.2 3.2v13.8A2.5 2.5 0 0 1 16 22H6.5A2.5 2.5 0 0 1 4 19.5V5A2.5 2.5 0 0 1 6.5 2.5zm8 2H6.5a.5.5 0 0 0-.5.5v14.5a.5.5 0 0 0 .5.5H16a.5.5 0 0 0 .5-.5V6.5h-2z"></path><path d="M9.2 9.1 7.4 12l1.8 2.9 1.5-.9-1.2-2 1.2-2zm5.6 0-1.5.9 1.2 2-1.2 2 1.5.9 1.8-2.9z"></path></svg>';
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9"><path d="M5 2.5h9l4 4v15H5zM14 2.5v4h4M7.5 14s1.7-3 4.5-3 4.5 3 4.5 3-1.7 3-4.5 3-4.5-3-4.5-3z"></path><circle cx="12" cy="14" r="1.25"></circle></g></svg>';
 }
 
 function articleActionsAuthor(root, fallbackCandidate = null) {
@@ -1024,10 +1031,10 @@ async function showArticleActionsMenu(entry, sourceCandidate, root) {
   if (candidate.contentType === "post") {
     menu.append(actionRow("复制 Markdown", copyTextIcon(), "copy-markdown"));
   } else if (!isArticleSourcePage()) {
-    menu.append(actionRow(isInReadingList ? "从待读移除" : "加入待读", readingTrayIcon(), "reading-list"));
+    menu.append(actionRow(isInReadingList ? "从待读移除" : "加入待读", readingTrayIcon(isInReadingList), "reading-list"));
   } else {
     menu.append(
-      actionRow(isInLibrary ? "从素材库移除" : "保存为素材", libraryBookmarkIcon(), "library"),
+      actionRow(isInLibrary ? "从素材库移除" : "保存为素材", libraryBookmarkIcon(isInLibrary), "library"),
       actionRow("预览 / 复制 Markdown", markdownPreviewIcon(), "preview"),
       actionRow(isAuthorSaved ? "取消收藏作者" : "收藏作者", isAuthorSaved ? removeAuthorIcon() : saveAuthorIcon(), "author"),
     );

@@ -20,9 +20,13 @@
 
 - 图标先满足动作语义，再满足 X 风格。统一使用 `24×24` viewBox、24px 菜单槽位、18.75–26px 可见尺寸、`currentColor`、固定点击热区和当前页填充态。
 - x-to-md 页面入口使用仓库现有文档/Markdown 图形；待读使用收件托盘；素材库使用 Bookmark；作者使用人物集合。
-- 保存素材使用 Bookmark；预览/复制 Markdown 使用文档/Markdown；收藏或取消收藏作者使用 person-add/person-remove；Post 复制使用现有文档复制图标。
-- 当前图标均来自仓库内已经用于 X 集成的 SVG 资产或基于同一资产的状态变体，按上述用途复用。新增图标必须在本节补充来源与用途。
+- 保存素材使用 Bookmark-plus；预览 Article 使用 Article-eye；复制 Markdown 使用 Markdown-copy；收藏或取消收藏作者使用 person-add/person-remove。
+- UI 图标的项目级单一权威源为 `assets/icons/x-to-md-ui-icons.svg`，稳定 `symbol id`、语义映射、状态和验收图以 `docs/design/icon-system.md` 为准。运行时即使因 Content Script 隔离而采用内联 SVG，也必须与权威源保持相同图形和 token。
+- 新增界面必须先复用权威图标库；缺少语义时，必须先取得用户提供的 X SVG／组件证据，再同步补充图标库、规范图、语义映射和契约测试。不得在业务代码中先加入临时 path，后补规范。
 - 不复制已连接的 X DOM/SVG，不用 emoji、Unicode 符号或临时字符替代图标。缺少图标证据时向用户索取 DevTools 中的最小 SVG 片段，不自行猜测 path。
+- 品牌 Logo 使用用户于 2026-08-14 从 X 左侧导航 DevTools 提供的官方 `24×24` X path，与较小的 Article/Markdown 文档组合；矢量源为 `assets/icons/x-to-md-icon-source.svg`，页面内单色入口源为 `assets/icons/x-to-md-entry.svg`。不得凭截图重绘或替换官方 X path。文档描边外缘与 X 最低点对齐，内部正文线比文档外框细。
+- 素材菜单的打开原文、编辑标签、使用状态和删除图标，以及素材预览动作图标，来源于用户确认的方案 1 设计图；保持 `24×24`、约 `1.9px` 圆角描边、固定图标槽和 `currentColor`。删除图标只在 destructive 动作中使用危险色。
+- 完整语义映射、导航状态和设计证据以 `docs/design/icon-system.md` 为权威规范；后续按钮必须先按动作语义选择该规范中的图标，不得仅因图形相似复用相反动作的图标。
 
 ## 组件规则
 
@@ -35,7 +39,7 @@
 
 ### Side Panel 导航与内容
 
-- 一级导航使用固定图标热区，active 使用填充态与浅色圆形背景；hover/focus 不移动内容。
+- 一级导航使用固定图标热区；active 使用 `#1d9bf0` 填充图标且无持续背景／边框，hover 使用 X 中性圆形背景，focus-visible 单独使用 2px 蓝色焦点环。状态切换不移动内容。
 - 待读只提供打开原文与移除；素材库提供搜索、标签、预览、复制、使用状态和删除；作者只提供打开作者 Articles 与取消收藏。
 - 空状态一句话说明当前为空以及唯一下一步，不增加营销文案或装饰插画。
 - 对话框只用于不可逆确认，使用扩展自身 DOM；`Escape` 关闭，取消为默认安全动作，确认删除使用 destructive 状态。
