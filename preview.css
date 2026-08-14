@@ -37,6 +37,7 @@ button:focus-visible, .preview-info a:focus-visible { outline: 3px solid #8ab4f8
   backdrop-filter: blur(8px);
 }
 .preview-actions { display: flex; gap: 8px; }
+.preview-save-button { white-space: nowrap; }
 .preview-icon-button {
   display: inline-grid;
   width: 36px;

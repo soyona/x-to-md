@@ -20,6 +20,7 @@
 | 修改代码、测试、规则或执行浏览器/视觉验收 | `docs/development/validation.md` |
 | 修改 X DOM、Card、Grok 左侧入口或独立菜单 | `docs/development/x-dom-integration.md` |
 | 修改模块职责、消息协议、存储键、持久化或一次性预览 | `docs/development/repository-contracts.md` |
+| 修改 Side Panel、入口、菜单、图标、文案或交互状态 | `docs/development/product-design.md` |
 | 读取、修改或归档 `memory-bank/**`，或查看下一任务 | `memory-bank/README.md` |
 
 默认不读取 `memory-bank/archive/**`；只有用户明确指定归档文件，或任务本身是已授权的归档维护时才访问。
@@ -34,9 +35,10 @@
 
 ## 产品形态与视觉铁律
 
-- 插件的主工作界面必须使用 Chrome Side Panel；不得将订阅源、候选集或素材库设计为独立后台页面或 Chrome Action Popup。
+- 插件的主工作界面必须使用 Chrome Side Panel；不得将待读、素材库或作者设计为独立后台页面或 Chrome Action Popup。
 - `x-to-md` 的产品视觉、信息密度、三栏布局、字体、间距、分隔线、控件状态和交互语义必须像素级复刻当前 X Web 界面，使用户在 X 与插件 Side Panel 间无缝切换。
 - 任何新增界面、原型或实现前，必须以当前 X Web 的真实页面为视觉基准；不得以通用 SaaS、卡片式仪表盘或自创设计语言替代 X 的产品理念与原则。
+- 禁止自动启动 Chrome、浏览器自动化或视觉验收。缺少 X DOM、SVG 或交互状态证据时必须停止猜测，明确要求用户通过 Chrome DevTools 提供支持当前决策的最小源码或属性片段。
 
 ## X 独立动作入口契约
 
