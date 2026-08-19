@@ -46,8 +46,11 @@
 | 标记已使用／未使用 | `mark-used`／`mark-unused` |
 | 删除 | `delete`；只使用 destructive 颜色 |
 | 搜索／更多／添加／关闭／复制 | `search`／`more`／`add`／`close`／`copy` |
+| 蓝色／金色认证身份 | `verified-blue`／`verified-gold` |
 
 菜单统一使用 `24×24` 图标槽、约 `1.9px` 圆角描边、`currentColor` 和 `12px` 图文间距。相反动作不得复用完全相同的图形。
+
+认证徽标不是动作图标，运行时使用 X 的原始 `22×22` 几何：蓝色为 `#1d9bf0` 单色 path，金色保留 X 的双渐变与底部阴影 path。两类 SVG 均来自用户通过 X DevTools 提供的 `data-testid="icon-verified"` 证据；不得用布尔认证状态或自制简化 path 替代。
 
 ## 设计证据
 

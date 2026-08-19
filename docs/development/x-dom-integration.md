@@ -14,6 +14,7 @@
 - 入口只复用同级 Grok slot（存在时）或 More button slot（无 Grok 时）的空外壳几何；按钮与 SVG 必须创建在扩展拥有的 Shadow DOM 内。不得克隆 X 按钮/SVG 子树，不得对 X 已连接 SVG 写 path 或调用 `replaceChildren()`，避免 React reconciliation 把扩展图形复用到 Verified 等原生节点。
 - 已验证的 `/home`、`/i/history`、`/i/history/likes`、作者 Posts 和作者 Articles 五个列表场景只以各自 Card 内的 `article[data-testid="tweet"]` 作为所有权边界；这些事实不得外推为未经取证的“所有列表页面”通用规则。在这五个场景中，`cellInnerDiv` 仅是虚拟列表定位容器，不是入口 owner。More 必须满足 `moreButton.closest('article[data-testid="tweet"]') === card`。入口 host 必须用新 DIV 创建，不克隆 X 节点；若 host 不再与该 Card 的 More wrapper 共享同一动作行，或被移动到虚拟列表容器，立即删除。
 - `/用户名/status/<id>` 详情页只允许当前 URL status ID 对应的主 Post Card 成为入口 owner。主 Card 必须包含指向该 status ID 的站内链接；回复、引用 Post 与其他 `cellInnerDiv` 不参与详情页入口注入。
+- Article 详情页的作者元数据属于当前主 `article[data-testid="tweet"]`，与正文采集容器分属不同层级。作者栏已验证使用 `data-testid="Tweet-User-Avatar"`、`data-testid="User-Name"` 和 `svg[data-testid="icon-verified"]`；发布时间使用主 Card 内的 `time[datetime]`。蓝色认证 SVG 是 `#1d9bf0` 单色 path，金色组织认证 SVG 含两个 `linearGradient` 和三个填充 path；采集时据此记录 `blue`／`gold`，不存在徽标则记录空字符串。采集头像、name、徽标与发布时间时必须限定在该主 Card，正文仍使用 Article 正文容器；不得以正文容器缺少作者栏为由回退到全局 document，也不得读取回复或推荐 Card。
 
 入口的直接视觉结构按同一动作行中的兄弟槽位理解：
 

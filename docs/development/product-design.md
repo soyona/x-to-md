@@ -123,6 +123,7 @@ Side Panel
 - 品牌 Logo 使用用户于 2026-08-14 从 X 左侧导航 DevTools 提供的官方 `24×24` X path，与较小的 Article/Markdown 文档组合；矢量源为 `assets/icons/x-to-md-icon-source.svg`，页面内单色入口源为 `assets/icons/x-to-md-entry.svg`。不得凭截图重绘或替换官方 X path。文档描边外缘与 X 最低点对齐，内部正文线比文档外框细。
 - 素材菜单的打开原文、编辑标签、使用状态和删除图标，以及素材预览动作图标，来源于用户确认的方案 1 设计图；保持 `24×24`、约 `1.9px` 圆角描边、固定图标槽和 `currentColor`。删除图标只在 destructive 动作中使用危险色。
 - 完整语义映射、导航状态和设计证据以 `docs/design/icon-system.md` 为权威规范；后续按钮必须先按动作语义选择该规范中的图标，不得仅因图形相似复用相反动作的图标。
+- 作者认证徽标复用用户从 X DevTools 提供的原始 `22×22` SVG：蓝色认证使用 `#1d9bf0` 单色 path，金色组织认证保留原始双渐变。待读、素材库和作者页共享同一徽标组件、尺寸与类型数据；作者 handle 的次级色不得覆盖徽标颜色。
 
 ## 组件规则
 

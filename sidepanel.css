@@ -69,8 +69,9 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .article-author strong { display: inline-flex; min-width: 0; align-items: center; overflow: hidden; color: var(--x-primary); font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .article-handle, .article-date { overflow: hidden; margin-left: 4px; text-overflow: ellipsis; white-space: nowrap; }
 .article-date { flex: 0 0 auto; }
-.verified-badge { display: inline-flex; width: 18px; height: 18px; flex: 0 0 18px; margin-left: 2px; color: var(--x-blue); vertical-align: -3px; }
-.verified-badge svg { width: 100%; height: 100%; fill: currentColor; }
+.verified-badge { display: inline-flex; width: 18px; height: 18px; flex: 0 0 18px; margin-left: 2px; vertical-align: -3px; }
+.verified-badge.is-blue { color: var(--x-blue); }
+.verified-badge svg { display: block; width: 100%; height: 100%; fill: currentColor; }
 .article-card { display: block; width: 100%; margin-top: 8px; overflow: hidden; border: 1px solid var(--twitter-color-border); border-radius: 12px; background: #fff; color: var(--x-primary); text-decoration: none; }
 .article-card-media { position: relative; display: block; aspect-ratio: 2.55; overflow: hidden; background: var(--twitter-color-divider); }
 .article-card-media img { display: block; width: 100%; height: 100%; object-fit: cover; }
@@ -92,8 +93,9 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .author-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .author-content { min-width: 0; flex: 1; }
 .author-identity { display: grid; min-width: 0; font-size: 15px; line-height: 20px; }
-.author-identity strong, .author-identity span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.author-identity span { color: var(--x-secondary); }
+.author-identity strong, .author-identity > .author-handle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.author-identity strong { display: inline-flex; max-width: 100%; align-items: center; justify-self: start; }
+.author-identity > .author-handle { color: var(--x-secondary); }
 .author-description { margin: 4px 0 0; font-size: 15px; line-height: 20px; }
 .author-remove-button { min-height: 32px; flex: 0 0 auto; padding: 0 14px; border: 1px solid var(--twitter-color-border); border-radius: var(--twitter-radius-pill); background: #fff; color: var(--x-primary); font-size: 14px; font-weight: 700; }
 .author-remove-button:hover { border-color: var(--x-error); background: var(--twitter-color-destructive-hover); color: var(--x-error); }

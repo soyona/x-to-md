@@ -41,6 +41,10 @@
     return { ...value, sourceUrl };
   }
 
+  function authorVerificationType(value) {
+    return value === "blue" || value === "gold" ? value : "";
+  }
+
   function saveReadingArticle(inboxValue, reference, { id, now } = {}) {
     const inbox = currentInbox(inboxValue);
     const article = articleReference(reference);
@@ -53,7 +57,7 @@
       authorHandle: article.authorHandle || "",
       authorName: article.authorName || "",
       authorAvatarUrl: article.authorAvatarUrl || "",
-      authorVerified: Boolean(article.authorVerified),
+      authorVerificationType: authorVerificationType(article.authorVerificationType),
       coverImageUrl: article.coverImageUrl || "",
       publishedAt: article.publishedAt || null,
       previewExcerpt: article.previewExcerpt || "",
@@ -85,7 +89,7 @@
       authorHandle: capture.authorHandle || "",
       authorName: capture.authorName || "",
       authorAvatarUrl: capture.authorAvatarUrl || "",
-      authorVerified: Boolean(capture.authorVerified),
+      authorVerificationType: authorVerificationType(capture.authorVerificationType),
       coverImageUrl: capture.coverImageUrl || "",
       publishedAt: capture.publishedAt || null,
       previewExcerpt: capture.previewExcerpt || "",
@@ -128,7 +132,7 @@
       handle,
       displayName: author.displayName || author.authorName || handle,
       authorAvatarUrl: author.authorAvatarUrl || "",
-      authorVerified: Boolean(author.authorVerified),
+      authorVerificationType: authorVerificationType(author.authorVerificationType),
       description: author.description || "",
       addedAt: existing?.addedAt || now,
     };
@@ -160,7 +164,7 @@
 }());
 
 const CONTENT_INBOX_STORAGE_KEY = "x-to-md-content-inbox";
-const CONTENT_SCRIPT_REVISION = "article-first-v1";
+const CONTENT_SCRIPT_REVISION = "article-first-v3";
 
 function isExpectedTabLifecycleError(error) {
   const message = String(error?.message || error || "").trim();
@@ -204,7 +208,7 @@ function previewValue(capture, { canSave = false } = {}) {
     authorName: capture?.authorName || "",
     authorHandle: capture?.authorHandle || "",
     authorAvatarUrl: capture?.authorAvatarUrl || "",
-    authorVerified: Boolean(capture?.authorVerified),
+    authorVerificationType: authorVerificationType(capture?.authorVerificationType),
     coverImageUrl: capture?.coverImageUrl || "",
     previewExcerpt: capture?.previewExcerpt || "",
     sourceUrl: capture?.sourceUrl || "",

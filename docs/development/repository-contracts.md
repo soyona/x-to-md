@@ -28,9 +28,10 @@
 }
 ```
 
-- `readingList`：Article 展示元数据与 `addedAt`，不含 Markdown 和状态枚举。
-- `authors`：handle、姓名、头像、认证、简介和 `addedAt`。
+- `readingList`：Article 展示元数据与 `addedAt`，不含 Markdown 和内容状态枚举；作者认证使用 `authorVerificationType: "" | "blue" | "gold"`。
+- `authors`：handle、姓名、头像、`authorVerificationType`、简介和 `addedAt`。
 - `assets`：Article 展示元数据、完整 `markdown`、`savedAt`、`tags` 和 `usageStatus`。不存在 `markdownState`、job 或半成品素材。
+- 作者认证类型是展示元数据，不使用 `authorVerified` 布尔值；未知或无认证统一存为空字符串，不猜测 X 未取证的认证类型。
 - Reading Article 与素材按规范化 Article URL 去重；URL 去除 query、hash 和 `/media/<id>` 子路由。
 - 保存素材时覆盖更新展示元数据和 Markdown，保留用户已有标签和使用状态，并删除同 URL 待读项。移除素材不自动退回待读。
 - 采集失败、来源 URL 不一致或 Markdown 为空时不得写入素材；Post 不进入任何持久集合。

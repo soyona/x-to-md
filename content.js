@@ -86,7 +86,7 @@ function articleMetadata(root, sourceHandle, blocks) {
     authorHandle: candidate?.authorHandle || null,
     authorName: candidate?.authorName || null,
     authorAvatarUrl: candidate?.authorAvatarUrl || null,
-    authorVerified: candidate?.authorVerified || false,
+    authorVerificationType: candidate?.authorVerificationType || "",
     coverImageUrl: candidate?.coverImageUrl || "",
     publishedAt: candidate?.publishedAt || null,
     previewExcerpt: candidate?.previewExcerpt || "",
@@ -123,7 +123,7 @@ const pendingArticleActionsRoots = new Set();
 const pendingArticleActionsMoreButtons = new Set();
 const runtimeMessageListeners = [];
 const CONTENT_INBOX_STORAGE_KEY = "x-to-md-content-inbox";
-const CONTENT_SCRIPT_REVISION = "article-first-v1";
+const CONTENT_SCRIPT_REVISION = "article-first-v3";
 const contentScriptAbortController = new AbortController();
 const contentScriptEventOptions = { signal: contentScriptAbortController.signal };
 const articleMenuDiagnostics = { revision: CONTENT_SCRIPT_REVISION, stage: "initialized", history: [] };
@@ -218,6 +218,12 @@ function looksLikeDisplayName(value) {
   return /[\p{L}\p{N}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(text);
 }
 
+function authorVerificationTypeFromRoot(root) {
+  const icon = root?.querySelector?.('svg[data-testid="icon-verified"], svg[aria-label="Verified account"]');
+  if (!icon) return "";
+  return icon.querySelector("linearGradient") ? "gold" : "blue";
+}
+
 function authorPresentationFromElement(element, handle = "", fallbackDisplayName = "", explicitRoot = null) {
   const userCell = element?.closest?.('[data-testid="UserCell"]');
   const root = explicitRoot || userCell || element?.closest?.("article") || document;
@@ -259,7 +265,7 @@ function authorPresentationFromElement(element, handle = "", fallbackDisplayName
     displayName,
     authorAvatarUrl: avatar?.currentSrc || avatar?.src || "",
     description: textOf(description),
-    authorVerified: Boolean(root.querySelector('[data-testid="icon-verified"], [aria-label="Verified account"]')),
+    authorVerificationType: authorVerificationTypeFromRoot(root),
   };
 }
 
@@ -334,7 +340,7 @@ function articlePreviewMetadata(root, cardText, title) {
     .trim();
   return {
     previewExcerpt,
-    authorVerified: Boolean(root?.querySelector('[data-testid="icon-verified"], [aria-label="Verified account"]')),
+    authorVerificationType: authorVerificationTypeFromRoot(root),
     previewCapturedAt: new Date().toISOString(),
     utilityIconSnapshot: actionSnapshotOf(root, 'button[aria-label*="Grok" i], [data-testid*="grok" i]', { includeCount: false }),
     engagementSnapshot: {
@@ -362,6 +368,13 @@ function articleCandidateRootFromPage() {
   return document.querySelector('[data-testid="twitterArticleReadView"], [data-testid="article"], [data-testid="twitterArticleRichTextView"], [data-testid="longformRichTextComponent"], [data-testid="articleBody"]') || null;
 }
 
+function articleMetadataRootFromPage(captureRoot = articleCandidateRootFromPage()) {
+  const statusRoot = statusSourceCardFromPage();
+  if (statusRoot) return statusRoot;
+  if (captureRoot?.matches?.('article[data-testid="tweet"]')) return captureRoot;
+  return captureRoot?.closest?.('article[data-testid="tweet"]') || null;
+}
+
 function articleActionsEntryRootFromPage() {
   const captureRoot = articleCandidateRootFromPage();
   if (articleMoreButtonFromRoot(captureRoot)) return captureRoot;
@@ -375,21 +388,31 @@ function articleActionsEntryRootFromPage() {
 }
 
 function articleCandidateAuthorFromPage(root) {
-  const handle = profileHandleFromHref(location.pathname);
-  if (!handle) return { handle: "", displayName: "", authorAvatarUrl: "", authorVerified: false };
+  const userName = root?.querySelector?.('[data-testid="User-Name"], [data-testid="UserName"]');
+  const handleFromIdentity = textOf(userName)
+    .split("\n")
+    .map((value) => value.trim())
+    .find((value) => /^@[a-z0-9_]{1,15}$/iu.test(value)) || "";
+  const handleFromRoute = /^\/[^/]+\/(?:status|article)\/\d+(?:\/|$)/u.test(location.pathname)
+    ? profileHandleFromHref(location.pathname)
+    : "";
+  const handle = handleFromIdentity || handleFromRoute;
+  if (!handle) return { handle: "", displayName: "", authorAvatarUrl: "", authorVerificationType: "" };
   return { handle, ...authorPresentationFromElement(root, handle, handle, root) };
 }
 
 function articleCandidateFromPage(author) {
   if (!isArticleSourcePage()) return null;
   const root = articleCandidateRootFromPage();
-  const pageAuthor = articleCandidateAuthorFromPage(root);
+  const metadataRoot = articleMetadataRootFromPage(root);
+  const pageAuthor = articleCandidateAuthorFromPage(metadataRoot);
   const authorHandle = author?.handle || pageAuthor.handle;
   const authorName = pageAuthor.displayName || author?.displayName || authorHandle;
   const title = textOf(root?.querySelector('[data-testid="twitter-article-title"], [data-testid="articleTitle"], [data-testid="longformTitle"], h1, [role="heading"]')) || "Untitled Article";
   const sourceUrl = canonicalArticleSourceUrl();
-  const time = root.querySelector("time");
+  const time = metadataRoot?.querySelector('time[datetime]');
   const cover = root.querySelector('[data-testid="article-cover-image"] img') || [...root.querySelectorAll("img")].find(isMediaImage);
+  const previewMetadata = articlePreviewMetadata(root, root.querySelector('[data-testid="article-cover-image"]')?.nextElementSibling, title);
   return {
     id: articleCandidateId(sourceUrl),
     contentType: "article",
@@ -400,7 +423,8 @@ function articleCandidateFromPage(author) {
     authorAvatarUrl: pageAuthor.authorAvatarUrl || author?.authorAvatarUrl || "",
     coverImageUrl: cover ? originalMediaUrl(cover.currentSrc || cover.src) : "",
     publishedAt: time?.getAttribute("datetime") || null,
-    ...articlePreviewMetadata(root, root.querySelector('[data-testid="article-cover-image"]')?.nextElementSibling, title),
+    ...previewMetadata,
+    authorVerificationType: pageAuthor.authorVerificationType || author?.authorVerificationType || "",
   };
 }
 
@@ -979,7 +1003,7 @@ async function showArticleActionsMenu(entry, sourceCandidate, root) {
     handle: candidate.authorHandle || "",
     displayName: candidate.authorName || candidate.authorHandle || "",
     authorAvatarUrl: candidate.authorAvatarUrl || "",
-    authorVerified: Boolean(candidate.authorVerified),
+    authorVerificationType: candidate.authorVerificationType || "",
     description: "",
   };
   const isAuthorSaved = (inbox.authors || []).some((item) => item.handle?.replace(/^@/u, "").toLowerCase() === author.handle?.replace(/^@/u, "").toLowerCase());
@@ -1341,7 +1365,7 @@ async function capturePage(root = findRoot(), sourceUrl = location.href, sourceC
     authorHandle: sourceCandidate.authorHandle || null,
     authorName: sourceCandidate.authorName || null,
     authorAvatarUrl: sourceCandidate.authorAvatarUrl || null,
-    authorVerified: sourceCandidate.authorVerified || false,
+    authorVerificationType: sourceCandidate.authorVerificationType || "",
     coverImageUrl: sourceCandidate.coverImageUrl || "",
     publishedAt: sourceCandidate.publishedAt || null,
     previewExcerpt: sourceCandidate.previewExcerpt || "",

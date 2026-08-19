@@ -65,12 +65,13 @@ test("产品内入口和动作菜单共享选中方案的图标契约", () => {
     "nav-authors-outline", "nav-authors-filled", "reading-add", "reading-remove", "library-add",
     "library-remove", "article-preview", "markdown-copy", "author-add", "author-remove",
     "open-original", "edit-tags", "mark-used", "mark-unused", "delete", "search", "more",
-    "add", "close", "copy",
+    "add", "close", "copy", "verified-blue", "verified-gold",
   ];
   const symbolIds = [...iconLibrary.matchAll(/<symbol id="([^"]+)"/gu)].map((match) => match[1]);
   assert.equal(new Set(symbolIds).size, symbolIds.length);
   assert.deepEqual(symbolIds, requiredSymbols);
-  for (const id of requiredSymbols) assert.match(iconBoard, new RegExp(`#${id}\\b`, "u"));
+  for (const id of requiredSymbols.filter((id) => !id.startsWith("verified-"))) assert.match(iconBoard, new RegExp(`#${id}\\b`, "u"));
+  assert.match(iconSpec, /认证徽标不是动作图标/u);
   assert.match(content, /M5 2\.5h9l4 4V11[\s\S]*width="8\.5" height="9\.5"/u);
   assert.match(content, /M7\.5 14s1\.7-3 4\.5-3[\s\S]*circle cx="12" cy="14" r="1\.25"/u);
   assert.match(panelScript, /M7\.5 14s1\.7-3 4\.5-3[\s\S]*circle cx="12" cy="14" r="1\.25"/u);
