@@ -230,8 +230,11 @@ test("Content Script 实现普通 Post 列表排除与固定菜单矩阵", () =>
 test("Side Panel 只有待读、素材库和作者三个一级页面", () => {
   const html = source("../sidepanel.html");
   const script = source("../sidepanel.js");
+  const navigation = /<nav class="tabbar"[^>]*>([\s\S]*?)<\/nav>/u.exec(html)?.[1] || "";
   const views = [...html.matchAll(/data-view="([^"]+)"/gu)].map((match) => match[1]);
   assert.deepEqual(views, ["readingList", "assets", "authors"]);
+  assert.equal((navigation.match(/<button\b/gu) || []).length, 3);
+  assert.doesNotMatch(navigation, /brand-mark|x-to-md-entry/u);
   assert.match(script, /data-action="asset-preview"/u);
   assert.match(script, /usageStatus/u);
   assert.match(script, /data-asset-tag-input/u);

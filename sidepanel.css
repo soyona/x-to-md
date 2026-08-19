@@ -32,8 +32,6 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .main-column, .view { min-width: 0; flex: 1; }
 
 .tabbar { position: sticky; top: 0; display: flex; width: 56px; min-height: 100vh; flex: 0 0 56px; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px; border-right: 1px solid var(--x-border); background: #fff; }
-.brand-mark { display: grid; width: 48px; height: 48px; flex: 0 0 48px; place-items: center; color: var(--x-primary); }
-.brand-mark img { display: block; width: 30px; height: 30px; }
 .tab { position: relative; display: grid; width: 48px; height: 48px; flex: 0 0 48px; place-items: center; padding: 0; border: 0; border-radius: var(--twitter-radius-pill); background: transparent; color: var(--x-secondary); }
 .tab:hover { background: var(--x-hover); color: var(--x-primary); }
 .tab .nav-icon { width: 26px; height: 26px; }

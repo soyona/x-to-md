@@ -47,7 +47,7 @@ test("产品内入口和动作菜单共享选中方案的图标契约", () => {
   const iconBoard = text("../docs/design/x-to-md-ui-icon-spec.svg");
 
   assert.match(content, new RegExp(OFFICIAL_X_PATH.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
-  assert.match(panelHtml, /assets\/icons\/x-to-md-entry\.svg/u);
+  assert.doesNotMatch(panelHtml, /assets\/icons\/x-to-md-entry\.svg/u);
   assert.equal((panelHtml.match(/class="nav-icon-outline"/gu) || []).length, 3);
   assert.equal((panelHtml.match(/class="nav-icon-filled"/gu) || []).length, 3);
   assert.match(panelScript, /打开原文[\s\S]*编辑标签[\s\S]*标记为未使用[\s\S]*删除素材/u);
