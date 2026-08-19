@@ -42,7 +42,7 @@
 
 ## X 独立动作入口契约
 
-- Home、作者 Posts/Articles 列表和 `/status`、`/article` 原文页的 x-to-md 入口位于 `Grok actions` 左侧。
+- Home、历史和作者 Posts/Articles 列表只为可确认的 Article Card 注入 x-to-md 入口；普通 Post 列表不注入。`/status`、`/article` 详情页只为当前 URL 对应的主 Post 或 Article 注入。所有符合条件的入口位于 `Grok actions` 或 `Summarize` 左侧。
 - “独立入口”同时要求独立 DOM、交互状态和菜单生命周期；可以复用 Grok 的视觉结构，不得复用其 React 状态、原生 caret 点击或 Dropdown 生命周期。
 - 点击 x-to-md 入口不得调用原生 More，不得通过打开后隐藏原生菜单项实现插件菜单。
 - 菜单动作只读取被点击入口所属的 Post 或 Article；同一 Card 最多注入一个入口。
